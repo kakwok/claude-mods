@@ -1,0 +1,6 @@
+{
+  "name": "context-bar",
+  "version": "0.1.0",
+  "description": "Stacked context-window bar above the prompt, broken down by category like /context",
+  "author": { "name": "Martin Kwok" }
+}
