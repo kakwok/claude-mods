@@ -95,6 +95,14 @@ test('simulate a multi-agent session', async ($, on) => {
       turnId: 't-' + agentId, agentId, answer: '', durationMs: 1000, isAborted: false, reason: 'answer',
       usage: { input_tokens: inp, output_tokens: out, cache_read_input_tokens: 60000, cache_creation_input_tokens: 0, model: 'claude-test' },
     } as any)
+  const STEPS = ['Map the auth flow', 'Write parser tests', 'Review the diff', 'Fix flagged issues', 'Update the README']
+  const ING = ['Mapping the auth flow', 'Writing parser tests', 'Reviewing the diff', 'Fixing flagged issues', 'Updating the README']
+  // Claude updates its todo list: the first `done` steps are finished and the next one is current
+  const todo = (done: number) =>
+    $.tool.call({
+      tool: 'TodoWrite',
+      todos: STEPS.map((content, i) => ({ content, activeForm: ING[i], status: i < done ? 'completed' : i === done ? 'in_progress' : 'pending' })),
+    } as any)
   const at = async (t: number) => {
     const now = await clock.now()
     if (t * 1000 > now) await clock.advance(t * 1000 - now)
@@ -112,6 +120,7 @@ test('simulate a multi-agent session', async ($, on) => {
   // 0s: two subagents start
   list = [A('a1', 'map auth flow', 'Explore', 'running'), A('a2', 'write parser tests', 'general-purpose', 'running')]
   await at(1)
+  await todo(0)
   console.log('\n(no one has typed /agent-roster; agents were just deployed)')
   await call('a1', { tool: 'Grep', pattern: 'login' })
   await call('a2', { tool: 'Read', file_path: '/Users/kkwok/proj/src/parser.py' })
@@ -131,6 +140,7 @@ test('simulate a multi-agent session', async ($, on) => {
 
   // 24s: the test writer spawns a child to find fixtures
   await at(24)
+  await todo(1)
   list = [...list, A('a3', 'find fixtures', 'Explore', 'running', 'a2')]
   await call('a3', { tool: 'Glob', pattern: 'tests/**/*.json' })
   await at(27)
@@ -153,6 +163,7 @@ test('simulate a multi-agent session', async ($, on) => {
 
   // 50s onward: tests pass, a reviewer starts
   await at(52)
+  await todo(2)
   list = list.map((a) => (a.id === 'a2' ? { ...a, status: 'completed' } : a))
   await spend('a2', 3100, 2200)
   list = [...list, A('a4', 'review the diff', 'code-reviewer', 'running')]
@@ -184,4 +195,34 @@ test('simulate a multi-agent session', async ($, on) => {
   await at(110)
   console.log('\n110s, after /agent-roster: ' + log.join('; '))
   await show('110s in: expanded on request, stays until closed')
+})
+
+test('/agent-roster demo shows a full sample session', async ($, on) => {
+  const clock = mock.clock(on)
+  on('agent.list', () => ({ value: [] }))
+  on('command.register', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('session.start', () => ({ cwd: '/work' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: [''] }))
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await clock.advance(5000)
+  const ui = await $.ui.mount(PANE)
+  const answer = await $.command.run({ command: 'agent-roster', args: 'demo' })
+  console.log('\n/agent-roster demo -> ' + answer.text)
+  await clock.advance(2000)
+  const w = PANE.props.bodyColumns
+  const dump = async (title: string) => {
+    const root = (await ui.find({ type: 'Box' })) as El
+    console.log('\n── ' + title + ' ' + '─'.repeat(Math.max(0, w - title.length - 1)))
+    console.log('┌' + '─'.repeat(w + 2) + '┐')
+    for (const l of lines(root, w)) console.log('│ ' + fit(l, w) + ' │')
+    console.log('└' + '─'.repeat(w + 2) + '┘')
+  }
+  await ui.press({ key: 'tab-roster' })
+  await dump('demo: roster tab')
+  await ui.press({ key: 'tab-timeline' })
+  await dump('demo: timeline tab')
+  console.log('\n' + (await $.command.run({ command: 'agent-roster', args: 'demo off' })).text)
 })
