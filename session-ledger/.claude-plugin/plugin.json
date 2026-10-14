@@ -1,6 +1,0 @@
-{
-  "name": "session-ledger",
-  "version": "0.1.0",
-  "description": "What Claude did (files changed, commands run) and what Claude Code added to the prompt (reminders, instruction files, memory, skills, MCP)",
-  "author": { "name": "Martin Kwok" }
-}

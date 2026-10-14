@@ -5,12 +5,12 @@ import { mock, test } from 'claude-code/testing'
 // kind of work here (the real pane uses color): █ read/search  ▓ edit  ▒ shell  ░ web
 
 const PANE = {
-  plugin: 'agent-roster',
+  plugin: 'lens',
   component: 'Pane',
-  requestId: 'agent-roster',
+  requestId: 'lens',
   surface: 'terminal',
   viewport: { columns: 140, rows: 40 },
-  props: { title: 'Agents', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+  props: { title: 'Lens', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
 } as const
 
 type El = { type: string; props: Record<string, any>; children?: (El | string)[] }
@@ -121,7 +121,7 @@ test('simulate a multi-agent session', async ($, on) => {
   list = [A('a1', 'map auth flow', 'Explore', 'running'), A('a2', 'write parser tests', 'general-purpose', 'running')]
   await at(1)
   await todo(0)
-  console.log('\n(no one has typed /agent-roster; agents were just deployed)')
+  console.log('\n(no one has typed /lens; agents were just deployed)')
   await call('a1', { tool: 'Grep', pattern: 'login' })
   await call('a2', { tool: 'Read', file_path: '/Users/kkwok/proj/src/parser.py' })
   await at(4)
@@ -191,13 +191,13 @@ test('simulate a multi-agent session', async ($, on) => {
 
   // expand again to check past activity
   await ui.press({ key: 'tab-timeline' })
-  await $.command.run({ command: 'agent-roster', args: '' })
+  await $.command.run({ command: 'lens', args: '' })
   await at(110)
-  console.log('\n110s, after /agent-roster: ' + log.join('; '))
+  console.log('\n110s, after /lens: ' + log.join('; '))
   await show('110s in: expanded on request, stays until closed')
 })
 
-test('/agent-roster demo shows a full sample session', async ($, on) => {
+test('/lens demo shows a full sample session', async ($, on) => {
   const clock = mock.clock(on)
   on('agent.list', () => ({ value: [] }))
   on('command.register', () => ({ value: undefined }))
@@ -209,8 +209,8 @@ test('/agent-roster demo shows a full sample session', async ($, on) => {
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
   await clock.advance(5000)
   const ui = await $.ui.mount(PANE)
-  const answer = await $.command.run({ command: 'agent-roster', args: 'demo' })
-  console.log('\n/agent-roster demo -> ' + answer.text)
+  const answer = await $.command.run({ command: 'lens', args: 'demo' })
+  console.log('\n/lens demo -> ' + answer.text)
   await clock.advance(2000)
   const w = PANE.props.bodyColumns
   const dump = async (title: string) => {
@@ -224,5 +224,5 @@ test('/agent-roster demo shows a full sample session', async ($, on) => {
   await dump('demo: roster tab')
   await ui.press({ key: 'tab-timeline' })
   await dump('demo: timeline tab')
-  console.log('\n' + (await $.command.run({ command: 'agent-roster', args: 'demo off' })).text)
+  console.log('\n' + (await $.command.run({ command: 'lens', args: 'demo off' })).text)
 })

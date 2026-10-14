@@ -1,6 +1,0 @@
-{
-  "name": "agent-roster",
-  "version": "0.1.0",
-  "description": "Live roster of this session's subagents in a side pane: status, runtime, tool count, and what each is doing now",
-  "author": { "name": "Martin Kwok" }
-}

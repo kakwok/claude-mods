@@ -1,4 +1,0 @@
-{
-  "description": "session-ledger hooks module",
-  "modules": ["./register.js"]
-}
