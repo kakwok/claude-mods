@@ -1,0 +1,4 @@
+{
+  "description": "agent-roster hooks module",
+  "modules": ["./register.js"]
+}

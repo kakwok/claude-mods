@@ -117,7 +117,10 @@ export function register(on) {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!visible || e.props.hasSurvey || !breakdown) return next(e)
+    // Other mods draw in this band too, so keep what they draw
+    const others = await next(e)
+    if (!visible || e.props.hasSurvey || !breakdown) return others
+    const rest = others && others.type !== 'engine' ? [others] : []
     const { Box, Text } = $.ui.resolve(e)
     const now = await $.clock.now()
 
@@ -234,11 +237,12 @@ export function register(on) {
       ],
     })
 
-    return Box({
+    const box = Box({
       flexDirection: 'column',
       borderStyle: 'round',
       paddingX: 1,
       children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: legend })],
     })
+    return rest.length ? Box({ flexDirection: 'column', children: [box, ...rest] }) : box
   })
 }
