@@ -22,7 +22,9 @@ const CHANGE = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 const MAX_CALLS = 500
 const MAX_ATTACHMENTS = 300
 const PREVIEW = 400
-const ROWS = 12
+const TREE_ROWS = 14
+const CMD_ROWS = 5
+const FEED_ROWS = 6
 
 // Per tool call, oldest first: { id, t, agentId, tool, target, kind, status, ms, error }
 const calls = new Map()
@@ -40,7 +42,8 @@ let itemsAreDemo = false
 let cwd = ''
 let isOpen = false
 let tab = 'activity'
-let sub = 'files'
+// Whether the file tree also lists files Claude only read
+let showReads = false
 // Attachment types the person expanded
 const expanded = new Set()
 
@@ -95,6 +98,53 @@ function originLabel(o) {
   return 'mod ' + (o.event ?? '')
 }
 
+// Files as a tree of folders. A chain of folders with one child each shows as one line (src/api/routes/).
+function buildTree(entries) {
+  const root = { dirs: new Map(), files: [] }
+  for (const en of entries) {
+    const parts = en.path.split('/').filter(Boolean)
+    if (en.path.startsWith('/')) parts.unshift('/')
+    const name = parts.pop()
+    let node = root
+    for (const part of parts) {
+      let next = node.dirs.get(part)
+      if (!next) {
+        next = { dirs: new Map(), files: [] }
+        node.dirs.set(part, next)
+      }
+      node = next
+    }
+    node.files.push({ name, en })
+  }
+  return root
+}
+
+function treeLines(node, prefix, out) {
+  // Folders of the project first; paths outside it (/ and ~) go last
+  const outside = (n) => (n === '/' || n === '~' ? 1 : 0)
+  const dirs = [...node.dirs.entries()].sort((a, b) => outside(a[0]) - outside(b[0]) || a[0].localeCompare(b[0]))
+  const files = [...node.files].sort((a, b) => a.name.localeCompare(b.name))
+  const total = dirs.length + files.length
+  let i = 0
+  for (const [first, firstChild] of dirs) {
+    i += 1
+    let name = first
+    let child = firstChild
+    while (child.files.length === 0 && child.dirs.size === 1) {
+      const [n, c] = [...child.dirs.entries()][0]
+      name = name === '/' ? '/' + n : name + '/' + n
+      child = c
+    }
+    const last = i === total
+    out.push({ prefix: prefix + (last ? '└─ ' : '├─ '), text: name.endsWith('/') ? name : name + '/', dir: true })
+    treeLines(child, prefix + (last ? '   ' : '│  '), out)
+  }
+  for (const f of files) {
+    i += 1
+    out.push({ prefix: prefix + (i === total ? '└─ ' : '├─ '), text: f.name, en: f.en })
+  }
+}
+
 // The tool-call log is a ring: the oldest call drops out first
 function addCall(c) {
   calls.set(c.id, c)
@@ -136,6 +186,10 @@ function loadDemo(now) {
   call(11, 40, undefined, 'WebFetch', { url: 'https://example.com/oauth/flows' }, 'ok', 800)
   call(12, 25, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/session.py' }, 'ok', 13)
   call(13, 12, undefined, 'Bash', { command: 'git diff --stat' }, 'ok', 90)
+  call(15, 55, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/api/routes/users.py' }, 'ok', 14)
+  call(16, 50, undefined, 'Write', { file_path: '/Users/kkwok/proj/tests/unit/test_users.py' }, 'ok', 9)
+  call(17, 45, undefined, 'Read', { file_path: '/Users/kkwok/proj/src/api/routes/orders.py' }, 'ok', 8)
+  call(18, 20, 'a1', 'Edit', { file_path: '/Users/kkwok/proj/src/api/models.py' }, 'ok', 12)
   call(14, 3, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/auth.py' }, 'running')
   const att = (ago_s, type, origin, text) => attachments.push({ t: now - ago_s * 1000, type, origin, text, demo: true })
   att(172, 'instructions', { kind: 'engine' }, 'Contents of /Users/kkwok/proj/CLAUDE.md (project instructions): Use pytest. Keep functions short.')
@@ -347,11 +401,15 @@ export function register(on) {
       ],
     })
 
+    // A title with its rows right under it; the gap only goes between sections
+    const section = (head, list) => Box({ flexDirection: 'column', children: [head, ...list] })
+    const more = (n) => (n > 0 ? [dim('  … ' + n + ' more')] : [])
+
     let body
     if (tab === 'activity') {
       const list = order.map((id) => calls.get(id))
 
-      // Files Claude changed, newest first; files it only read are a count
+      // Files Claude changed, newest first; files it only read are optional
       const changed = new Map()
       for (const c of list) {
         if (!CHANGE.has(c.tool) || !c.target) continue
@@ -362,84 +420,108 @@ export function register(on) {
         f.sub = f.sub || Boolean(c.agentId)
         changed.set(c.target, f)
       }
-      const files = [...changed.entries()].sort((a, b) => b[1].last - a[1].last)
-      const reads = new Set(list.filter((c) => c.tool === 'Read' && c.target).map((c) => c.target)).size
-      const cmds = list.filter((c) => c.tool === 'Bash').reverse()
-      const cmdFailed = cmds.filter((c) => c.status === 'failed').length
+      const readPaths = new Set(list.filter((c) => c.tool === 'Read' && c.target).map((c) => c.target))
+      const readOnly = [...readPaths].filter((p) => !changed.has(p))
+      const entries = [
+        ...[...changed.entries()].map(([path, f]) => ({ path: shortPath(path), kind: 'changed', ...f })),
+        ...(showReads ? readOnly.map((path) => ({ path: shortPath(path), kind: 'read' })) : []),
+      ]
+      const lines = []
+      treeLines(buildTree(entries), '', lines)
+      const shown = lines.slice(0, TREE_ROWS)
 
-      const summary =
-        files.length + ' changed · ' + reads + ' read · ' + cmds.length + ' cmds' + (cmdFailed ? ' (' + cmdFailed + ' failed)' : '')
-      const subs = Box({
+      const treeRows = shown.length
+        ? [
+            ...shown.map((l, i) => {
+              const en = l.en
+              const icon = !en ? ' ' : en.kind === 'read' ? '○' : en.edits ? '✎' : '✖'
+              const color = !en ? undefined : en.kind === 'read' ? undefined : en.edits ? KINDS.change : BAD
+              const meta = en && en.kind === 'changed' ? '×' + (en.edits + en.failed) + (en.sub ? ' ↳' : '') + ' · ' + ago(now - en.last) : ''
+              return Box({
+                key: 'tree-' + i,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                children: [
+                  Box({
+                    flexDirection: 'row',
+                    children: [
+                      Text({ dimColor: true, children: [l.prefix] }),
+                      ...(en ? [Text({ color, dimColor: en.kind === 'read', children: [icon + ' '] })] : []),
+                      Text({ bold: Boolean(en) && en.kind === 'changed', dimColor: !en || en.kind === 'read', wrap: 'truncate-end', children: [l.text] }),
+                    ],
+                  }),
+                  Text({ dimColor: true, children: [meta || ' '] }),
+                ],
+              })
+            }),
+            ...more(lines.length - shown.length),
+          ]
+        : [dim(list.length ? 'No files changed yet.' : 'Nothing yet. Tool calls show up here as Claude makes them.')]
+
+      const filesHead = Box({
         flexDirection: 'row',
-        columnGap: 3,
+        justifyContent: 'space-between',
         children: [
-          ['files', 'f'],
-          ['commands', 'c'],
-          ['feed', 'l'],
-        ].map(([name, key]) =>
-          pick('sub-' + name, name, key, sub === name, () => {
-            sub = name
+          Text({ bold: true, color: ACCENT, children: ['◆ files changed  ' + changed.size + (readPaths.size ? ' · ' + readPaths.size + ' read' : '')] }),
+          pick('toggle-reads', showReads ? 'hide reads' : 'show reads', 'r', showReads, () => {
+            showReads = !showReads
             redraw()
           }),
-        ),
+        ],
       })
 
-      const more = (n) => (n > 0 ? [dim('  … ' + n + ' more')] : [])
-      let rows
-      if (list.length === 0) rows = [dim('Nothing yet. Tool calls show up here as Claude makes them.')]
-      else if (sub === 'files') {
-        rows = files.length
-          ? [
-              ...files.slice(0, ROWS).map(([path, f], i) =>
-                row(
-                  [
-                    Text({ color: f.edits ? KINDS.change : BAD, children: [f.edits ? '✎' : '✖'] }),
-                    Text({ wrap: 'truncate-start', children: [shortPath(path)] }),
-                    Text({ dimColor: true, children: ['×' + (f.edits + f.failed) + (f.sub ? ' ↳' : '') + ' · ' + ago(now - f.last)] }),
-                  ],
-                  { key: 'file-' + i, justifyContent: 'space-between' },
-                ),
-              ),
-              ...more(files.length - ROWS),
-            ]
-          : [dim('No files changed yet.')]
-      } else if (sub === 'commands') {
-        rows = cmds.length
-          ? [
-              ...cmds.slice(0, ROWS).map((c, i) =>
-                Box({
-                  key: 'cmd-' + i,
-                  flexDirection: 'column',
-                  children: [
-                    row([
-                      Text({ color: c.status === 'failed' ? BAD : c.status === 'running' ? BLUE : OK, children: [c.status === 'failed' ? '✖' : c.status === 'running' ? '●' : '✔'] }),
-                      Text({ wrap: 'truncate-end', children: [clip(c.target, 80)] }),
-                    ]),
-                    ...(c.status === 'failed' && c.error ? [dim('    ' + c.error)] : []),
-                  ],
-                }),
-              ),
-              ...more(cmds.length - ROWS),
-            ]
-          : [dim('No commands run yet.')]
-      } else {
-        const recent = [...list].reverse()
-        rows = [
-          ...recent.slice(0, ROWS).map((c, i) =>
-            row(
-              [
-                Text({ color: KINDS[c.kind], children: ['█'] }),
-                Text({ bold: true, children: [c.tool] }),
-                Text({ dimColor: true, wrap: 'truncate-start', children: [c.kind === 'run' ? clip(c.target, 60) : shortPath(c.target)] }),
-                Text({ color: c.status === 'failed' ? BAD : undefined, dimColor: c.status !== 'failed', children: [(c.agentId ? '↳ ' : '') + ago(now - c.t)] }),
-              ],
-              { key: 'feed-' + i, justifyContent: 'space-between' },
+      // Commands: newest first, with the error under a failed one
+      const cmds = list.filter((c) => c.tool === 'Bash').reverse()
+      const cmdFailed = cmds.filter((c) => c.status === 'failed').length
+      const cmdRows = cmds.length
+        ? [
+            ...cmds.slice(0, CMD_ROWS).map((c, i) =>
+              Box({
+                key: 'cmd-' + i,
+                flexDirection: 'column',
+                children: [
+                  row([
+                    Text({ color: c.status === 'failed' ? BAD : c.status === 'running' ? BLUE : OK, children: [c.status === 'failed' ? '✖' : c.status === 'running' ? '●' : '✔'] }),
+                    Text({ wrap: 'truncate-end', children: [clip(c.target, 80)] }),
+                  ]),
+                  ...(c.status === 'failed' && c.error ? [dim('    ' + c.error)] : []),
+                ],
+              }),
             ),
-          ),
-          ...more(recent.length - ROWS),
-        ]
-      }
-      body = [Box({ flexDirection: 'column', children: [title('◆ activity', summary), subs] }), Box({ flexDirection: 'column', children: rows })]
+            ...more(cmds.length - CMD_ROWS),
+          ]
+        : [dim('No commands run yet.')]
+
+      // Feed: every kind of tool call, newest first
+      const recent = [...list].reverse()
+      const feedRows = recent.length
+        ? [
+            ...recent.slice(0, FEED_ROWS).map((c, i) =>
+              row(
+                [
+                  Box({
+                    flexDirection: 'row',
+                    columnGap: 1,
+                    children: [
+                      Text({ color: KINDS[c.kind], children: ['█'] }),
+                      Text({ bold: true, children: [c.tool] }),
+                      Text({ dimColor: true, wrap: 'truncate-start', children: [c.kind === 'run' ? clip(c.target, 40) : shortPath(c.target)] }),
+                    ],
+                  }),
+                  Text({ color: c.status === 'failed' ? BAD : undefined, dimColor: c.status !== 'failed', children: [(c.agentId ? '↳ ' : '') + ago(now - c.t)] }),
+                ],
+                { key: 'feed-' + i, justifyContent: 'space-between' },
+              ),
+            ),
+            ...more(recent.length - FEED_ROWS),
+          ]
+        : [dim('No tool calls yet.')]
+
+      body = [
+        section(filesHead, treeRows),
+        section(title('◆ commands', cmds.length + (cmdFailed ? ' · ' + cmdFailed + ' failed' : '')), cmdRows),
+        section(title('◆ recent activity', recent.length + ' calls'), feedRows),
+      ]
     } else {
       // What Claude Code added to the prompt, by kind
       const tally = new Map()
@@ -483,9 +565,6 @@ export function register(on) {
       const instRows = instructionFiles.length
         ? instructionFiles.map((f, i) => row([Text({ dimColor: true, children: [f.kind] }), Text({ wrap: 'truncate-start', children: [shortPath(f.path)] })], { key: 'inst-' + i }))
         : [dim('None reported.')]
-
-      // A title with its rows right under it; the gap only goes between sections
-      const section = (head, list) => Box({ flexDirection: 'column', children: [head, ...list] })
 
       const lists = []
       if (items) {
