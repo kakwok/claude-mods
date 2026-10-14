@@ -68,6 +68,7 @@ test('simulate a multi-agent session', async ($, on) => {
   let list: any[] = []
   on('agent.list', () => ({ value: list }))
   on('command.register', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
   const log: string[] = []
   const stamp = () => Math.round(Number(clock.now()) / 1000) + 's'
   on('ui.open', ($, e) => {
@@ -169,7 +170,8 @@ test('simulate a multi-agent session', async ($, on) => {
   await show('84s in: roster')
 
   // 85s: the reviewer finishes, so nothing is running; the pane waits a few seconds
-  list = list.map((a) => (a.id === 'a4' ? { ...a, status: 'completed' } : a))
+  // Claude Code may also drop finished agents from its list; the roster has to keep them
+  list = []
   await at(88)
   console.log('\n88s: all done, pane still up -> ' + log.join('; '))
   await at(95)

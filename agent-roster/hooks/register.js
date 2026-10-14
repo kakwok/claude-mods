@@ -42,8 +42,12 @@ let pinned = false
 let hadLive = false
 let finishedAt = undefined
 let view = 'roster'
-// The latest $.agent.list()
+// Every agent seen this session, kept even if Claude Code later drops it from its list
+const known = new Map()
+// known, as an array
 let agents = []
+// What the band last decided, so the debug log only gets a line when that changes
+let bandState = ''
 // Per agent id: first seen, stopped, tool calls, latest call, tokens, and the call log
 const seen = new Map()
 
@@ -130,6 +134,13 @@ function lane(s, t0, t1, width, now) {
   return runs
 }
 
+// Lines for `claude --debug`; the transcript stays quiet
+function trace($, text) {
+  try {
+    $.ui.log('agent-roster: ' + text, { to: 'debug' })
+  } catch {}
+}
+
 async function openPane($, focus) {
   try {
     const pane = { id: PANE, title: 'Agents', closeOnEscape: true }
@@ -152,11 +163,24 @@ async function closePane($) {
 async function sync($) {
   try {
     const now = await $.clock.now()
+    let list = null
     try {
-      agents = await $.agent.list()
-    } catch {
-      agents = []
+      list = await $.agent.list()
+    } catch (error) {
+      trace($, 'agent.list failed: ' + String(error))
     }
+    if (list) {
+      const ids = new Set(list.map((a) => a.id))
+      for (const a of list) known.set(a.id, a)
+      // One that left the list while live finished without us seeing how
+      for (const [id, a] of known) {
+        if (!ids.has(id) && LIVE.has(a.status)) {
+          trace($, id + ' left the list while ' + a.status + '; counting it as completed')
+          known.set(id, { ...a, status: 'completed' })
+        }
+      }
+    }
+    agents = [...known.values()]
     for (const a of agents) {
       const s = entry(a.id, now)
       if (LIVE.has(a.status)) s.endedAt = undefined
@@ -168,15 +192,21 @@ async function sync($) {
       hadLive = true
       finishedAt = undefined
       pinned = false
+      trace($, 'agents deployed (' + agents.filter((a) => LIVE.has(a.status)).length + ' live); pane open: ' + isOpen)
       if (!isOpen) await openPane($, false)
+      trace($, 'auto-open done; pane open: ' + isOpen)
     } else if (!live && hadLive) {
       hadLive = false
       finishedAt = now
+      trace($, 'all ' + agents.length + ' agents finished; folding in ' + MINIMIZE_MS / 1000 + 's unless pinned')
     }
     if (!live && finishedAt !== undefined && !pinned && isOpen && now - finishedAt >= MINIMIZE_MS) {
+      trace($, 'folding the pane into the band')
       await closePane($)
     }
-  } catch {}
+  } catch (error) {
+    trace($, 'sync failed: ' + String(error))
+  }
   if (agents.length > 0 || isOpen) $.ui.invalidate('ui.render')
 }
 
@@ -254,6 +284,7 @@ export function register(on) {
   // /clear, /resume and exit start the roster over
   on('session.end', async ($, e, next) => {
     agents = []
+    known.clear()
     seen.clear()
     hadLive = false
     finishedAt = undefined
@@ -265,7 +296,13 @@ export function register(on) {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // Other mods draw in this band too, so keep what they draw
     const others = await next(e)
-    if (isOpen || agents.length === 0 || e.props.hasSurvey) return others
+    const why = isOpen ? 'pane is open' : agents.length === 0 ? 'no agents known' : e.props.hasSurvey ? 'survey holds the band' : ''
+    const state = why ? 'hidden: ' + why : 'shown, others: ' + (others ? String(others.type) : 'none')
+    if (state !== bandState) {
+      bandState = state
+      trace($, 'band ' + state)
+    }
+    if (why) return others
     const rest = others && others.type !== 'engine' ? [others] : []
     const { Box, Text, Button } = $.ui.resolve(e)
     const now = await $.clock.now()
