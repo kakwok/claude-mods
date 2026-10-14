@@ -9,6 +9,7 @@ Each directory is a complete plugin. Needs Claude Code v2.1.287 or later.
 |---|---|
 | [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model, 5h and weekly plan usage with reset countdowns, and a per-turn summary line. Hidden until you run `/context-bar`. |
 | [`agent-roster`](agent-roster) | Side pane for this session's subagents. Roster tab: status, runtime, tokens spent, and the tool each is running now, with children indented. Timeline tab: one lane per agent over a shared clock, colored by read/edit/shell/web. Toggle with `/agent-roster`; `1` and `2` switch tabs. |
+| [`session-ledger`](session-ledger) | Pane with two tabs. Activity: files Claude changed, commands it ran (pass/fail), and a live feed of tool calls. Context: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), instruction files, and the memory, MCP and skill lists. Toggle with `/ledger`; `/ledger demo` shows sample data. Everything stays in memory. |
 
 ## Use a mod
 
