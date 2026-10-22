@@ -210,3 +210,60 @@ test('/lens routes by argument, and a manual open stays across a new batch of ag
   console.log('manual open, then a new batch finishes: closes=' + CLOSES + ' (still just the one from before)')
   if (CLOSES !== 1) throw new Error('the pane folded although the person opened it')
 })
+
+test('tabs drag into a new order, "more" expands, and the last turn is marked', async ($, on) => {
+  const clock = mock.clock(on)
+  stubs(on, clock)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/Users/kkwok/proj' })
+  await $.prompt.submit({ text: 'first turn' })
+  let n = 0
+  const edit = async (path: string) => {
+    const id = 'toolu_' + ++n
+    await $.tool.call({ tool: 'Edit', tool_use_id: id, file_path: path } as any)
+    await clock.advance(1000)
+    await $.classic.PostToolUse({ tool_name: 'Edit', tool_use_id: id, duration_ms: 10 } as any)
+  }
+  const bash = async (command: string) => {
+    const id = 'toolu_' + ++n
+    await $.tool.call({ tool: 'Bash', tool_use_id: id, command } as any)
+    await clock.advance(1000)
+    await $.classic.PostToolUse({ tool_name: 'Bash', tool_use_id: id, duration_ms: 10 } as any)
+  }
+  await edit('/Users/kkwok/proj/src/old.py')
+  for (let i = 0; i < 8; i++) await bash('echo ' + i)
+  await $.prompt.submit({ text: 'second turn' })
+  await clock.advance(1000)
+  await edit('/Users/kkwok/proj/src/new.py')
+
+  await $.command.run({ command: 'lens', args: '' })
+  const ui = await $.ui.mount(PANE)
+
+  // Activity is first, so the pane opens on it
+  if (!(await ui.find({ type: 'Text', text: /files changed/ }))) throw new Error('the pane did not open on Activity')
+  const marked = Boolean(await ui.find({ type: 'Text', text: /● 1 last turn/ }))
+  console.log('\nheader marks 1 file from the last turn: ' + marked)
+  if (!marked) throw new Error('the last turn was not marked')
+
+  const tab = async (id: string) => (await ui.find({ key: 'tab-' + id, in: 'tabs' })) as any
+  console.log('before the drag, Context hotkey: ' + (await tab('context'))?.props.hotkey)
+  // "4: Context" spans columns 40-49; drop it on the first slot
+  await ui.pointer({ type: 'down', x: 44, y: 0, button: 'left' })
+  await ui.pointer({ type: 'move', x: 20, y: 0, button: 'left' })
+  await ui.pointer({ type: 'move', x: 2, y: 0, button: 'left' })
+  await ui.pointer({ type: 'up', x: 2, y: 0, button: 'left' })
+  const hotkey = (await tab('context'))?.props.hotkey
+  console.log('after dragging Context to the front, its hotkey: ' + hotkey)
+  if (hotkey !== '1') throw new Error('Context did not move to the front')
+  if (!(await ui.find({ type: 'Text', text: /added to the prompt/ }))) throw new Error('the dragged tab was not shown')
+
+  // A click (down and up on one tab) picks it
+  await clock.advance(1000)
+  await ui.pointer({ type: 'down', x: 16, y: 0, button: 'left' })
+  await ui.pointer({ type: 'up', x: 16, y: 0, button: 'left' })
+  if (!(await ui.find({ type: 'Text', text: /files changed/ }))) throw new Error('clicking Activity did not show it')
+
+  await ui.press({ key: 'more-commands' })
+  await dump(ui, 'activity, commands expanded')
+  await ui.press({ key: 'more-commands' })
+  await dump(ui, 'activity, commands collapsed')
+})

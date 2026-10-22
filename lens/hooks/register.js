@@ -1,6 +1,7 @@
 // Lens: one pane for the session: a plan checklist, subagents (roster and timeline), and a ledger of
 // what Claude did (Activity) and what Claude Code added to the prompt (Context).
-// Digits 1-4 switch tabs while the pane has the keyboard. /lens opens it; /lens <view> picks a tab.
+// Digits 1-4 switch tabs while the pane has the keyboard, by their place on the bar; dragging a tab
+// along the bar moves it, and the order is kept across sessions. /lens opens it; /lens <view> picks a tab.
 // The pane opens by itself when agents are deployed, and a few seconds after the last
 // one finishes it folds into a one-line band above the prompt; the band's "expand"
 // (or /lens) brings the full pane back.
@@ -47,6 +48,13 @@ const PREVIEW = 400
 const TREE_ROWS = 14
 const CMD_ROWS = 5
 const FEED_ROWS = 6
+// How many rows a section shows once its "more" is expanded
+const OPEN_ROWS = 100
+// The tabs, in the order they start in; the person can drag them into another
+const TABS = { activity: 'Activity', roster: 'Agents', timeline: 'Timeline', context: 'Context' }
+const DEFAULT_ORDER = ['activity', 'roster', 'timeline', 'context']
+// A click that ends a drag can also press the tab under it; a select this soon after a move is that press
+const DROP_MS = 400
 
 // Claude's todo list, from its TodoWrite calls: [{ content, status, activeForm }]
 let plan = []
@@ -58,7 +66,14 @@ let pinned = false
 // Whether any agent was live at the last look, and when the last one stopped
 let hadLive = false
 let finishedAt = undefined
-let view = 'roster'
+let tabOrder = [...DEFAULT_ORDER]
+let view = tabOrder[0]
+// When the tabs were last dragged into a new order
+let movedAt = 0
+// Sections whose "more" the person expanded: files, commands, feed
+const openMore = new Set()
+// When the latest prompt was submitted: files changed since then are the last turn's
+let turnAt = undefined
 
 // The ledger, in memory only. Per tool call, oldest first: { id, t, agentId, tool, target, kind, status, ms, error }
 const calls = new Map()
@@ -361,6 +376,8 @@ function loadLedgerDemo(now) {
   call(17, 45, undefined, 'Read', { file_path: '/Users/kkwok/proj/src/api/routes/orders.py' }, 'ok', 8)
   call(18, 20, 'a1', 'Edit', { file_path: '/Users/kkwok/proj/src/api/models.py' }, 'ok', 12)
   call(14, 3, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/auth.py' }, 'running')
+  // The last turn began after the README read, so the later edits are its
+  turnAt = now - 58 * 1000
   const att = (ago_s, type, origin, text) => attachments.push({ t: now - ago_s * 1000, type, origin, text, demo: true })
   att(172, 'instructions', { kind: 'engine' }, 'Contents of /Users/kkwok/proj/CLAUDE.md (project instructions): Use pytest. Keep functions short.')
   att(171, 'skill_listing', { kind: 'engine' }, 'The following skills are available for use with the Skill tool: code-review, simplify, loop, schedule')
@@ -507,8 +524,26 @@ async function spend($, e) {
   } catch {}
 }
 
+// A stored or posted order counts only if it names each tab once
+function isOrder(list) {
+  return Array.isArray(list) && list.length === DEFAULT_ORDER.length && DEFAULT_ORDER.every((t) => list.includes(t))
+}
+
+async function selectView($, name) {
+  view = name
+  // Looking at the ledger is a choice to stay, so the pane must not fold away
+  if (name === 'activity' || name === 'context') pinned = true
+  if (name === 'context') await loadItems($)
+  $.ui.invalidate('ui.render')
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
+    try {
+      const saved = await $.store.get('tabOrder')
+      if (isOrder(saved)) tabOrder = [...saved]
+    } catch {}
+    view = tabOrder[0]
     // Elapsed times only move with the clock, and agents appear on their own, so poll
     $.clock.every(1000, async () => {
       await sync($)
@@ -594,7 +629,29 @@ export function register(on) {
   // A new prompt starts a new "this turn"
   on('prompt.submit', async ($, e, next) => {
     turnMark = attachments.length
+    try {
+      turnAt = await $.clock.now()
+    } catch {}
     return next(e)
+  })
+
+  // The tab bar (tabs.js) says a tab was clicked or dragged to a new place
+  on('ui.message', async ($, e, next) => {
+    if (e.requestId !== PANE || e.element !== 'tabs') return next(e)
+    const data = e.data ?? {}
+    const now = await $.clock.now()
+    if (isOrder(data.order)) {
+      tabOrder = [...data.order]
+      movedAt = now
+      try {
+        await $.store.set('tabOrder', tabOrder)
+      } catch {}
+      if (data.active in TABS) await selectView($, data.active)
+      else $.ui.invalidate('ui.render')
+    } else if (typeof data.select === 'string' && data.select in TABS && now - movedAt > DROP_MS) {
+      await selectView($, data.select)
+    }
+    return {}
   })
 
   // /lens toggles the pane; /lens <view> opens it on that tab (again, to close it)
@@ -644,6 +701,8 @@ export function register(on) {
   on('session.end', async ($, e, next) => {
     wipeLedger(false)
     turnMark = 0
+    turnAt = undefined
+    openMore.clear()
     agents = []
     plan = []
     planIsDemo = false
@@ -728,7 +787,7 @@ export function register(on) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Client } = $.ui.resolve(e)
     const now = await $.clock.now()
     const redraw = () => $.ui.invalidate('ui.render')
 
@@ -751,26 +810,27 @@ export function register(on) {
       ],
     })
 
-    const tab = (name, label, hotkey) =>
-      Button({
-        key: 'tab-' + name,
-        label,
-        hotkey,
-        plain: true,
-        dimColor: view !== name,
-        onPress: async () => {
-          view = name
-          // Looking at the ledger is a choice to stay, so the pane must not fold away
-          if (name === 'activity' || name === 'context') pinned = true
-          if (name === 'context') await loadItems($)
-          redraw()
-        },
-      })
-    const tabs = Box({
-      flexDirection: 'row',
-      columnGap: 3,
-      children: [tab('roster', 'Agents', '1'), tab('timeline', 'Timeline', '2'), tab('activity', 'Activity', '3'), tab('context', 'Context', '4')],
-    })
+    // Where the surface can follow the pointer the bar is tabs.js, whose tabs drag; elsewhere plain buttons
+    const tabs = Client
+      ? Client({
+          key: 'tabs',
+          module: './tabs.js',
+          props: { tabs: tabOrder.map((id) => ({ id, label: TABS[id] })), active: view },
+        })
+      : Box({
+          flexDirection: 'row',
+          columnGap: 3,
+          children: tabOrder.map((name, i) =>
+            Button({
+              key: 'tab-' + name,
+              label: TABS[name],
+              hotkey: String(i + 1),
+              plain: true,
+              dimColor: view !== name,
+              onPress: () => selectView($, name),
+            }),
+          ),
+        })
 
     const empty = Text({
       dimColor: true,
@@ -937,6 +997,27 @@ export function register(on) {
       // A title with its rows right under it; the gap only goes between sections
       const section = (head, list) => Box({ flexDirection: 'column', children: [head, ...list] })
       const more = (n) => (n > 0 ? [dim('  … ' + n + ' more')] : [])
+      // How many rows a section shows, and the "n more" / "show less" under it
+      const limit = (name, rows) => (openMore.has(name) ? OPEN_ROWS : rows)
+      const moreToggle = (name, total, rows) => {
+        const open = openMore.has(name)
+        const hidden = total - limit(name, rows)
+        if (!open && hidden <= 0) return []
+        return [
+          Button({
+            key: 'more-' + name,
+            label: open ? '  ▴ show less' : '  ▸ ' + hidden + ' more',
+            plain: true,
+            dimColor: true,
+            onPress: () => {
+              if (openMore.has(name)) openMore.delete(name)
+              else openMore.add(name)
+              redraw()
+            },
+          }),
+          ...(open ? more(hidden) : []),
+        ]
+      }
 
       let body
       if (view === 'activity') {
@@ -946,13 +1027,15 @@ export function register(on) {
         const changed = new Map()
         for (const c of list) {
           if (!CHANGE.has(c.tool) || !c.target) continue
-          const f = changed.get(c.target) ?? { edits: 0, failed: 0, last: 0, sub: false }
+          const f = changed.get(c.target) ?? { edits: 0, failed: 0, last: 0, sub: false, turn: false }
           if (c.status === 'failed') f.failed += 1
           else f.edits += 1
           f.last = c.t
           f.sub = f.sub || Boolean(c.agentId)
+          f.turn = f.turn || (turnAt !== undefined && c.t >= turnAt)
           changed.set(c.target, f)
         }
+        const turnCount = [...changed.values()].filter((f) => f.turn).length
         const readPaths = new Set(list.filter((c) => c.tool === 'Read' && c.target).map((c) => c.target))
         const readOnly = [...readPaths].filter((p) => !changed.has(p))
         const entries = [
@@ -961,7 +1044,7 @@ export function register(on) {
         ]
         const lines = []
         treeLines(buildTree(entries), '', lines)
-        const shown = lines.slice(0, TREE_ROWS)
+        const shown = lines.slice(0, limit('files', TREE_ROWS))
 
         const treeRows = shown.length
           ? [
@@ -969,7 +1052,10 @@ export function register(on) {
                 const en = l.en
                 const icon = !en ? ' ' : en.kind === 'read' ? '○' : en.edits ? '✎' : '✖'
                 const color = !en ? undefined : en.kind === 'read' ? undefined : en.edits ? KINDS.change.color : BAD
-                const meta = en && en.kind === 'changed' ? '×' + (en.edits + en.failed) + (en.sub ? ' ↳' : '') + ' · ' + ago(now - en.last) : ''
+                const meta =
+                  en && en.kind === 'changed'
+                    ? '×' + (en.edits + en.failed) + (en.sub ? ' ↳' : '') + ' · ' + (en.turn ? 'last turn' : ago(now - en.last))
+                    : ''
                 return Box({
                   key: 'tree-' + i,
                   flexDirection: 'row',
@@ -981,13 +1067,14 @@ export function register(on) {
                         Text({ dimColor: true, children: [l.prefix] }),
                         ...(en ? [Text({ color, dimColor: en.kind === 'read', children: [icon + ' '] })] : []),
                         Text({ bold: Boolean(en) && en.kind === 'changed', dimColor: !en || en.kind === 'read', wrap: 'truncate-end', children: [l.text] }),
+                        ...(en && en.turn ? [Text({ color: BLUE, children: [' ●'] })] : []),
                       ],
                     }),
-                    Text({ dimColor: true, children: [meta || ' '] }),
+                    Text({ color: en && en.turn ? BLUE : undefined, dimColor: !(en && en.turn), children: [meta || ' '] }),
                   ],
                 })
               }),
-              ...more(lines.length - shown.length),
+              ...moreToggle('files', lines.length, TREE_ROWS),
             ]
           : [dim(list.length ? 'No files changed yet.' : 'Nothing yet. Tool calls show up here as Claude makes them.')]
 
@@ -995,7 +1082,13 @@ export function register(on) {
           flexDirection: 'row',
           justifyContent: 'space-between',
           children: [
-            Text({ bold: true, color: ACCENT, children: ['◆ files changed  ' + changed.size + (readPaths.size ? ' · ' + readPaths.size + ' read' : '')] }),
+            Box({
+              flexDirection: 'row',
+              children: [
+                Text({ bold: true, color: ACCENT, children: ['◆ files changed  ' + changed.size + (readPaths.size ? ' · ' + readPaths.size + ' read' : '')] }),
+                ...(turnCount ? [Text({ color: BLUE, children: [' · ● ' + turnCount + ' last turn'] })] : []),
+              ],
+            }),
             pick('toggle-reads', showReads ? 'hide reads' : 'show reads', 'r', showReads, () => {
               showReads = !showReads
               redraw()
@@ -1008,7 +1101,7 @@ export function register(on) {
         const cmdFailed = cmds.filter((c) => c.status === 'failed').length
         const cmdRows = cmds.length
           ? [
-              ...cmds.slice(0, CMD_ROWS).map((c, i) =>
+              ...cmds.slice(0, limit('commands', CMD_ROWS)).map((c, i) =>
                 Box({
                   key: 'cmd-' + i,
                   flexDirection: 'column',
@@ -1021,7 +1114,7 @@ export function register(on) {
                   ],
                 }),
               ),
-              ...more(cmds.length - CMD_ROWS),
+              ...moreToggle('commands', cmds.length, CMD_ROWS),
             ]
           : [dim('No commands run yet.')]
 
@@ -1029,7 +1122,7 @@ export function register(on) {
         const recent = [...list].reverse()
         const feedRows = recent.length
           ? [
-              ...recent.slice(0, FEED_ROWS).map((c, i) =>
+              ...recent.slice(0, limit('feed', FEED_ROWS)).map((c, i) =>
                 row(
                   [
                     Box({
@@ -1046,7 +1139,7 @@ export function register(on) {
                   { key: 'feed-' + i, justifyContent: 'space-between' },
                 ),
               ),
-              ...more(recent.length - FEED_ROWS),
+              ...moreToggle('feed', recent.length, FEED_ROWS),
             ]
           : [dim('No tool calls yet.')]
 
