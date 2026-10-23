@@ -1,6 +1,6 @@
 // Context bar above the prompt: one stacked segment per /context category,
 // plan-limit usage in the header, and a one-line summary after each turn.
-// Starts hidden; /context-bar toggles it.
+// Shown by default; /context-bar toggles it.
 
 // Colors by category name, as /context names them
 const COLORS = {
@@ -31,11 +31,21 @@ const LABELS = {
 // Latest readings, and whether the band is shown
 let breakdown = null
 let rateLimits = []
-let visible = false
+let visible = true
 
-// Context tokens after the previous turn, and output tokens generated this session
+// Context tokens after the previous turn, how much the last turn added, and output tokens generated this session
 let lastContext = null
+let lastDelta = null
 let outTotal = 0
+
+// Blue for a small turn, amber from 5k, red from 20k: a turn that size is worth a look
+function deltaColor(delta) {
+  return delta >= 20_000 ? RED : delta >= 5_000 ? AMBER : BLUE
+}
+
+function signed(delta) {
+  return (delta >= 0 ? '▲ +' : '▼ -') + fmt(Math.abs(delta))
+}
 
 function fmt(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M'
@@ -80,6 +90,8 @@ export function register(on) {
       description: 'Show or hide the context bar',
       immediate: true,
     })
+    // Fill the bar right away instead of waiting for the first turn
+    if (visible) await refresh($)
     return next(e)
   })
 
@@ -97,13 +109,15 @@ export function register(on) {
     const now = (await $.session.usage()).context.tokens
     const delta = now !== undefined && lastContext !== null ? now - lastContext : null
     if (now !== undefined) lastContext = now
+    lastDelta = delta
 
     if (!visible) return next(e)
     await refresh($)
 
+    // The line is plain text, so the context cost leads it; the band above the prompt shows it in color
     const input = e.usage.input_tokens + e.usage.cache_read_input_tokens + e.usage.cache_creation_input_tokens
     const parts = []
-    if (delta !== null) parts.push((delta >= 0 ? '▲ +' : '▼ -') + fmt(Math.abs(delta)) + ' ctx')
+    if (delta !== null) parts.push(signed(delta) + ' context last turn → ' + fmt(now))
     parts.push('out ' + fmt(e.usage.output_tokens) + ' · session ' + fmt(outTotal))
     if (input > 0) parts.push('cache ' + Math.round((e.usage.cache_read_input_tokens / input) * 100) + '%')
     return { text: parts.join(' · '), usage: e.usage }
@@ -237,11 +251,28 @@ export function register(on) {
       ],
     })
 
+    // What the last turn added leads the legend: the header has no room for it beside the plan limits,
+    // and the legend wraps where the header would overflow
+    const delta =
+      lastDelta !== null
+        ? [
+            Box({
+              key: 'delta',
+              flexDirection: 'row',
+              columnGap: 1,
+              children: [
+                Text({ bold: true, color: deltaColor(lastDelta), children: [signed(lastDelta)] }),
+                Text({ dimColor: true, children: ['last turn'] }),
+              ],
+            }),
+          ]
+        : []
+
     const box = Box({
       flexDirection: 'column',
       borderStyle: 'round',
       paddingX: 1,
-      children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: legend })],
+      children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [...delta, ...legend] })],
     })
     return rest.length ? Box({ flexDirection: 'column', children: [box, ...rest] }) : box
   })

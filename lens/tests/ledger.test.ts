@@ -211,7 +211,7 @@ test('/lens routes by argument, and a manual open stays across a new batch of ag
   if (CLOSES !== 1) throw new Error('the pane folded although the person opened it')
 })
 
-test('tabs drag into a new order, "more" expands, and the last turn is marked', async ($, on) => {
+test('Activity comes first, "more" expands, and the last turn is marked', async ($, on) => {
   const clock = mock.clock(on)
   stubs(on, clock)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/Users/kkwok/proj' })
@@ -244,23 +244,15 @@ test('tabs drag into a new order, "more" expands, and the last turn is marked', 
   console.log('\nheader marks 1 file from the last turn: ' + marked)
   if (!marked) throw new Error('the last turn was not marked')
 
-  const tab = async (id: string) => (await ui.find({ key: 'tab-' + id, in: 'tabs' })) as any
-  console.log('before the drag, Context hotkey: ' + (await tab('context'))?.props.hotkey)
-  // "4: Context" spans columns 40-49; drop it on the first slot
-  await ui.pointer({ type: 'down', x: 44, y: 0, button: 'left' })
-  await ui.pointer({ type: 'move', x: 20, y: 0, button: 'left' })
-  await ui.pointer({ type: 'move', x: 2, y: 0, button: 'left' })
-  await ui.pointer({ type: 'up', x: 2, y: 0, button: 'left' })
-  const hotkey = (await tab('context'))?.props.hotkey
-  console.log('after dragging Context to the front, its hotkey: ' + hotkey)
-  if (hotkey !== '1') throw new Error('Context did not move to the front')
-  if (!(await ui.find({ type: 'Text', text: /added to the prompt/ }))) throw new Error('the dragged tab was not shown')
-
-  // A click (down and up on one tab) picks it
-  await clock.advance(1000)
-  await ui.pointer({ type: 'down', x: 16, y: 0, button: 'left' })
-  await ui.pointer({ type: 'up', x: 16, y: 0, button: 'left' })
-  if (!(await ui.find({ type: 'Text', text: /files changed/ }))) throw new Error('clicking Activity did not show it')
+  // Hotkeys follow the order on the bar: Activity is 1, Context 4
+  const hotkeys: Record<string, string> = {}
+  for (const id of ['activity', 'roster', 'timeline', 'context']) hotkeys[id] = ((await ui.find({ key: 'tab-' + id })) as any)?.props.hotkey
+  console.log('tab hotkeys: ' + JSON.stringify(hotkeys))
+  if (JSON.stringify(hotkeys) !== JSON.stringify({ activity: '1', roster: '2', timeline: '3', context: '4' })) throw new Error('tab hotkeys out of order')
+  await ui.press({ key: 'tab-context' })
+  if (!(await ui.find({ type: 'Text', text: /added to the prompt/ }))) throw new Error('the Context tab was not shown')
+  await ui.press({ key: 'tab-activity' })
+  if (!(await ui.find({ type: 'Text', text: /files changed/ }))) throw new Error('the Activity tab was not shown')
 
   await ui.press({ key: 'more-commands' })
   await dump(ui, 'activity, commands expanded')

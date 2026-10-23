@@ -1,7 +1,6 @@
 // Lens: one pane for the session: a plan checklist, subagents (roster and timeline), and a ledger of
 // what Claude did (Activity) and what Claude Code added to the prompt (Context).
-// Digits 1-4 switch tabs while the pane has the keyboard, by their place on the bar; dragging a tab
-// along the bar moves it, and the order is kept across sessions. /lens opens it; /lens <view> picks a tab.
+// Digits 1-4 switch tabs while the pane has the keyboard. /lens opens it; /lens <view> picks a tab.
 // The pane opens by itself when agents are deployed, and a few seconds after the last
 // one finishes it folds into a one-line band above the prompt; the band's "expand"
 // (or /lens) brings the full pane back.
@@ -50,11 +49,9 @@ const CMD_ROWS = 5
 const FEED_ROWS = 6
 // How many rows a section shows once its "more" is expanded
 const OPEN_ROWS = 100
-// The tabs, in the order they start in; the person can drag them into another
+// The tabs, in the order the bar shows them; each one's hotkey is its place
 const TABS = { activity: 'Activity', roster: 'Agents', timeline: 'Timeline', context: 'Context' }
-const DEFAULT_ORDER = ['activity', 'roster', 'timeline', 'context']
-// A click that ends a drag can also press the tab under it; a select this soon after a move is that press
-const DROP_MS = 400
+const TAB_ORDER = ['activity', 'roster', 'timeline', 'context']
 
 // Claude's todo list, from its TodoWrite calls: [{ content, status, activeForm }]
 let plan = []
@@ -66,10 +63,7 @@ let pinned = false
 // Whether any agent was live at the last look, and when the last one stopped
 let hadLive = false
 let finishedAt = undefined
-let tabOrder = [...DEFAULT_ORDER]
-let view = tabOrder[0]
-// When the tabs were last dragged into a new order
-let movedAt = 0
+let view = TAB_ORDER[0]
 // Sections whose "more" the person expanded: files, commands, feed
 const openMore = new Set()
 // When the latest prompt was submitted: files changed since then are the last turn's
@@ -371,13 +365,19 @@ function loadLedgerDemo(now) {
   call(11, 40, undefined, 'WebFetch', { url: 'https://example.com/oauth/flows' }, 'ok', 800)
   call(12, 25, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/session.py' }, 'ok', 13)
   call(13, 12, undefined, 'Bash', { command: 'git diff --stat' }, 'ok', 90)
+  call(19, 175, undefined, 'Bash', { command: 'git status --short' }, 'ok', 40)
+  call(20, 140, undefined, 'Bash', { command: 'ruff check src' }, 'ok', 300)
+  call(21, 65, undefined, 'Bash', { command: 'pytest tests/unit -q' }, 'ok', 2400)
+  call(22, 35, undefined, 'Bash', { command: 'ruff check src' }, 'ok', 280)
   call(15, 55, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/api/routes/users.py' }, 'ok', 14)
   call(16, 50, undefined, 'Write', { file_path: '/Users/kkwok/proj/tests/unit/test_users.py' }, 'ok', 9)
   call(17, 45, undefined, 'Read', { file_path: '/Users/kkwok/proj/src/api/routes/orders.py' }, 'ok', 8)
   call(18, 20, 'a1', 'Edit', { file_path: '/Users/kkwok/proj/src/api/models.py' }, 'ok', 12)
   call(14, 3, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/auth.py' }, 'running')
-  // The last turn began after the README read, so the later edits are its
-  turnAt = now - 58 * 1000
+  // The sample calls above are listed by number, not by time; the views read them in time order
+  order.sort((a, b) => calls.get(a).t - calls.get(b).t)
+  // The last turn began half a minute ago: its edits (auth.py, session.py, models.py) are marked
+  turnAt = now - 30 * 1000
   const att = (ago_s, type, origin, text) => attachments.push({ t: now - ago_s * 1000, type, origin, text, demo: true })
   att(172, 'instructions', { kind: 'engine' }, 'Contents of /Users/kkwok/proj/CLAUDE.md (project instructions): Use pytest. Keep functions short.')
   att(171, 'skill_listing', { kind: 'engine' }, 'The following skills are available for use with the Skill tool: code-review, simplify, loop, schedule')
@@ -524,11 +524,6 @@ async function spend($, e) {
   } catch {}
 }
 
-// A stored or posted order counts only if it names each tab once
-function isOrder(list) {
-  return Array.isArray(list) && list.length === DEFAULT_ORDER.length && DEFAULT_ORDER.every((t) => list.includes(t))
-}
-
 async function selectView($, name) {
   view = name
   // Looking at the ledger is a choice to stay, so the pane must not fold away
@@ -539,11 +534,6 @@ async function selectView($, name) {
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
-    try {
-      const saved = await $.store.get('tabOrder')
-      if (isOrder(saved)) tabOrder = [...saved]
-    } catch {}
-    view = tabOrder[0]
     // Elapsed times only move with the clock, and agents appear on their own, so poll
     $.clock.every(1000, async () => {
       await sync($)
@@ -633,25 +623,6 @@ export function register(on) {
       turnAt = await $.clock.now()
     } catch {}
     return next(e)
-  })
-
-  // The tab bar (tabs.js) says a tab was clicked or dragged to a new place
-  on('ui.message', async ($, e, next) => {
-    if (e.requestId !== PANE || e.element !== 'tabs') return next(e)
-    const data = e.data ?? {}
-    const now = await $.clock.now()
-    if (isOrder(data.order)) {
-      tabOrder = [...data.order]
-      movedAt = now
-      try {
-        await $.store.set('tabOrder', tabOrder)
-      } catch {}
-      if (data.active in TABS) await selectView($, data.active)
-      else $.ui.invalidate('ui.render')
-    } else if (typeof data.select === 'string' && data.select in TABS && now - movedAt > DROP_MS) {
-      await selectView($, data.select)
-    }
-    return {}
   })
 
   // /lens toggles the pane; /lens <view> opens it on that tab (again, to close it)
@@ -787,7 +758,7 @@ export function register(on) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button, Client } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const now = await $.clock.now()
     const redraw = () => $.ui.invalidate('ui.render')
 
@@ -810,27 +781,20 @@ export function register(on) {
       ],
     })
 
-    // Where the surface can follow the pointer the bar is tabs.js, whose tabs drag; elsewhere plain buttons
-    const tabs = Client
-      ? Client({
-          key: 'tabs',
-          module: './tabs.js',
-          props: { tabs: tabOrder.map((id) => ({ id, label: TABS[id] })), active: view },
-        })
-      : Box({
-          flexDirection: 'row',
-          columnGap: 3,
-          children: tabOrder.map((name, i) =>
-            Button({
-              key: 'tab-' + name,
-              label: TABS[name],
-              hotkey: String(i + 1),
-              plain: true,
-              dimColor: view !== name,
-              onPress: () => selectView($, name),
-            }),
-          ),
-        })
+    const tabs = Box({
+      flexDirection: 'row',
+      columnGap: 3,
+      children: TAB_ORDER.map((name, i) =>
+        Button({
+          key: 'tab-' + name,
+          label: TABS[name],
+          hotkey: String(i + 1),
+          plain: true,
+          dimColor: view !== name,
+          onPress: () => selectView($, name),
+        }),
+      ),
+    })
 
     const empty = Text({
       dimColor: true,
