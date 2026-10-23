@@ -65,6 +65,8 @@ function lines(el: El | string, width: number): string[] {
 // What the stubbed agent list and pane closes look like, for tests that change them
 let AGENTS: any[] = []
 let CLOSES = 0
+// Whether the next stubbed tool call fails, as the engine's result says
+let FAIL = false
 
 const stubs = (on: any, clock: any) => {
   AGENTS = []
@@ -79,11 +81,8 @@ const stubs = (on: any, clock: any) => {
     CLOSES += 1
     return { value: undefined }
   })
-  on('tool.call', () => ({ result: 'ok' }))
-  on('classic.PostToolUse', () => ({}))
-  on('classic.PostToolUseFailure', () => ({}))
+  on('tool.call', () => (FAIL ? { isError: true, text: 'exit 1: 2 failed', result: undefined } : { result: 'ok' }))
   on('prompt.attachment', (_: any, e: any) => ({ text: e.text }))
-  on('prompt.context', () => ({ blocks: [] }))
   on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
   on('session.usage', () => ({
     value: {
@@ -124,12 +123,11 @@ test('real events fill the ledger', async ($, on) => {
   let n = 0
   const call = async (tool: string, args: Record<string, string>, failed = false, agentId?: string) => {
     const id = 'toolu_' + ++n
+    FAIL = failed
     await $.tool.call({ tool, tool_use_id: id, ...(agentId ? { agentId } : {}), ...args } as any)
+    FAIL = false
     await clock.advance(1500)
-    if (failed) await $.classic.PostToolUseFailure({ tool_name: tool, tool_use_id: id, error: 'exit 1: 2 failed', duration_ms: 2100 } as any)
-    else await $.classic.PostToolUse({ tool_name: tool, tool_use_id: id, duration_ms: 12 } as any)
   }
-  await $.prompt.context({ blocks: [], instructionFiles: [{ path: '/Users/kkwok/.claude/CLAUDE.md', kind: 'user', content: '' }, { path: '/Users/kkwok/proj/CLAUDE.md', kind: 'project', content: '' }] } as any)
   await $.prompt.attachment({ type: 'instructions', text: 'Contents of CLAUDE.md: use pytest.', origin: { kind: 'engine' } } as any)
   await call('Read', { file_path: '/Users/kkwok/proj/src/auth.py' })
   await call('Grep', { pattern: 'login' })
@@ -221,13 +219,11 @@ test('Activity comes first, "more" expands, and the last turn is marked', async 
     const id = 'toolu_' + ++n
     await $.tool.call({ tool: 'Edit', tool_use_id: id, file_path: path } as any)
     await clock.advance(1000)
-    await $.classic.PostToolUse({ tool_name: 'Edit', tool_use_id: id, duration_ms: 10 } as any)
   }
   const bash = async (command: string) => {
     const id = 'toolu_' + ++n
     await $.tool.call({ tool: 'Bash', tool_use_id: id, command } as any)
     await clock.advance(1000)
-    await $.classic.PostToolUse({ tool_name: 'Bash', tool_use_id: id, duration_ms: 10 } as any)
   }
   await edit('/Users/kkwok/proj/src/old.py')
   for (let i = 0; i < 8; i++) await bash('echo ' + i)
@@ -258,4 +254,43 @@ test('Activity comes first, "more" expands, and the last turn is marked', async 
   await dump(ui, 'activity, commands expanded')
   await ui.press({ key: 'more-commands' })
   await dump(ui, 'activity, commands collapsed')
+})
+
+test('with promptAttachments off, Lens hooks no prompt.attachment and says why', { options: { promptAttachments: false } }, async ($, on) => {
+  const clock = mock.clock(on)
+  stubs(on, clock)
+  // The button asks Claude Code to flip the option, the same row /config shows
+  let asked: any = null
+  on('config.list', () => ({ value: [{ key: 'lens.promptAttachments', label: 'Show what Claude Code adds to the prompt', kind: 'toggle', value: false, provider: { plugin: 'lens', tier: 'user' }, isLocked: false }] }))
+  on('config.set', (_: any, e: any) => {
+    asked = e
+    return { value: e.value }
+  })
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/Users/kkwok/proj' })
+  await $.prompt.attachment({ type: 'todo_reminder', text: 'should not be seen', origin: { kind: 'engine' } } as any)
+  await $.command.run({ command: 'lens', args: 'context' })
+  const ui = await $.ui.mount(PANE)
+  const off = Boolean(await ui.find({ type: 'Text', text: /^Off\. Turn it on/ }))
+  const leaked = Boolean(await ui.find({ type: 'Text', text: /should not be seen/ }))
+  console.log('\npromptAttachments off: says off ' + off + ', attachment shown ' + leaked)
+  if (!off || leaked) throw new Error('the attachments section did not switch off')
+  await ui.press({ key: 'toggle-attachments' })
+  console.log('turn on pressed: config.set ' + JSON.stringify(asked && { key: asked.key, value: asked.value }))
+  if (!asked || asked.key !== 'lens.promptAttachments' || asked.value !== true) throw new Error('the button did not turn the option on')
+})
+
+test('a command that fails is marked from tool.call alone', async ($, on) => {
+  const clock = mock.clock(on)
+  stubs(on, clock)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/Users/kkwok/proj' })
+  FAIL = true
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'toolu_x', command: 'pytest -q' } as any)
+  FAIL = false
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'toolu_y', command: 'git status' } as any)
+  await $.command.run({ command: 'lens', args: '' })
+  const ui = await $.ui.mount(PANE)
+  const failed = Boolean(await ui.find({ type: 'Text', text: /exit 1: 2 failed/ }))
+  const stuck = Boolean(await ui.find({ type: 'Text', text: '●' }))
+  console.log('\nfailed command shows its error: ' + failed + ', any still running: ' + stuck)
+  if (!failed || stuck) throw new Error('tool.call results did not settle the commands')
 })

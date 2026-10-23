@@ -4,5 +4,13 @@
   "description": "One pane for the session: plan, subagents and timeline, files and commands Claude touched, and what Claude Code added to the prompt",
   "author": {
     "name": "Martin Kwok"
+  },
+  "userConfig": {
+    "promptAttachments": {
+      "type": "boolean",
+      "title": "Show what Claude Code adds to the prompt",
+      "description": "Lens's Context tab lists the reminders and notes Claude Code adds to the prompt. Turn off where an organization's managed plugin keeps that event from Lens (each skipped event shows a notice).",
+      "default": true
+    }
   }
 }

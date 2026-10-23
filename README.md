@@ -8,7 +8,7 @@ Each directory is a complete plugin. Needs Claude Code v2.1.287 or later.
 | Mod | What it does |
 |---|---|
 | [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model, 5h and weekly plan usage with reset countdowns, and what the last turn added to the context: colored by size at the head of the legend (blue, amber from 5k, red from 20k) and leading the summary line after each turn. Shown by default; `/context-bar` hides or shows it. |
-| [`lens`](lens) | One pane for the session, tabs switched with `1`–`4`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents / Timeline**: plan checklist, subagents with status, runtime and tokens, and a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), instruction files, memory, MCP and skill lists. `/lens` toggles it; `/lens agents\|timeline\|activity\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. |
+| [`lens`](lens) | One pane for the session, tabs switched with `1`–`4`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents / Timeline**: plan checklist, subagents with status, runtime and tokens, and a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens agents\|timeline\|activity\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
 
 ## Screens
 
@@ -125,7 +125,7 @@ After each turn, in the transcript:
 · thinking
 ```
 
-**Context** (`4`): what Claude Code added to the prompt, instruction files, memory, MCP and skills.
+**Context** (`4`): what Claude Code added to the prompt, memory files, MCP and skills.
 
 ```text
 1: Activity   2: Agents   3: Timeline   4: Context
@@ -143,10 +143,6 @@ After each turn, in the transcript:
     The following skills are available for use with the Skill t…
 ▸ instructions ×1 engine
     Contents of /Users/kkwok/proj/CLAUDE.md (project instructio…
-
-◆ instruction files                                            2
-user ~/.claude/CLAUDE.md
-project CLAUDE.md
 
 ◆ memory files                                       2 · 672 tok
 AutoMem ~/.claude/projects/proj/memory/MEMORY.md 262

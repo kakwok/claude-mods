@@ -76,8 +76,8 @@ const order = []
 let attachments = []
 // How many attachments there were when the last prompt was submitted
 let turnMark = 0
-// The instruction files behind CLAUDE.md, from prompt.context
-let instructionFiles = []
+// Whether the prompt.attachment hook is on (the promptAttachments option)
+let attachmentsOn = true
 // The latest usage breakdown, for the memory, MCP and skill lists
 let items = null
 let itemsAreDemo = false
@@ -341,8 +341,6 @@ function wipeLedger(demoOnly) {
   attachments = demoOnly ? attachments.filter((a) => !a.demo) : []
   if (!demoOnly || itemsAreDemo) items = null
   itemsAreDemo = false
-  if (!demoOnly) instructionFiles = []
-  else instructionFiles = instructionFiles.filter((f) => !f.demo)
   turnMark = Math.min(turnMark, attachments.length)
 }
 
@@ -388,10 +386,6 @@ function loadLedgerDemo(now) {
   att(30, 'context', { kind: 'hook', event: 'SessionStart' }, 'Branch: feature/auth-fix. 3 uncommitted files. Last commit: "wip oauth".')
   att(8, 'edited_text_file', { kind: 'engine' }, 'Note: /Users/kkwok/proj/src/session.py was modified, either by the user or by a linter.')
   turnMark = attachments.length - 3
-  instructionFiles = [
-    { path: '/Users/kkwok/.claude/CLAUDE.md', kind: 'user', demo: true },
-    { path: '/Users/kkwok/proj/CLAUDE.md', kind: 'project', demo: true },
-  ]
   items = {
     memoryFiles: [
       { path: '/Users/kkwok/.claude/projects/proj/memory/MEMORY.md', type: 'AutoMem', tokens: 262 },
@@ -501,6 +495,19 @@ async function recordCall($, e) {
   } catch {}
 }
 
+// How the call ended, from the result tool.call itself resolves to. An observer, like recordCall.
+async function settleCall($, id, result) {
+  try {
+    const c = calls.get(id)
+    if (!c) return
+    const failed = Boolean(result && (result.isError || result.deny !== undefined))
+    c.status = failed ? 'failed' : 'ok'
+    c.ms = (await $.clock.now()) - c.t
+    if (failed) c.error = clip(result.deny ?? result.text ?? '', 120)
+    if (isOpen) $.ui.invalidate('ui.render')
+  } catch {}
+}
+
 // An observer: a failure here must never get in the way of the tool call
 async function note($, e) {
   try {
@@ -524,6 +531,19 @@ async function spend($, e) {
   } catch {}
 }
 
+// Flips the promptAttachments option, as /config would. Claude Code reloads Lens for the new value,
+// and a reload starts the pane's record over.
+async function toggleAttachments($) {
+  try {
+    const rows = await $.config.list()
+    const row = rows.find((r) => r.provider?.plugin === $.plugin.name && r.key.endsWith('.promptAttachments'))
+    const done = await $.config.set({ key: row?.key ?? $.plugin.name + '.promptAttachments', value: !attachmentsOn })
+    if (done.deny !== undefined) $.ui.toast('lens: ' + done.deny)
+  } catch (error) {
+    $.ui.toast('lens: could not change the setting: ' + String(error))
+  }
+}
+
 async function selectView($, name) {
   view = name
   // Looking at the ledger is a choice to stay, so the pane must not fold away
@@ -532,7 +552,10 @@ async function selectView($, name) {
   $.ui.invalidate('ui.render')
 }
 
-export function register(on) {
+// Hooks only the events it needs: an organization's managed plugin may send some events past every
+// plugin a person installs, and each hook it skips gets a notice. Tool calls end in tool.call's own
+// result, not PostToolUse; prompt.attachment is the promptAttachments option, off where it never arrives.
+export function register(on, options) {
   on('session.start', async ($, e, next) => {
     // Elapsed times only move with the clock, and agents appear on their own, so poll
     $.clock.every(1000, async () => {
@@ -562,7 +585,15 @@ export function register(on) {
       planIsDemo = false
       $.ui.invalidate('ui.render')
     }
-    return next(e)
+    let result
+    try {
+      result = await next(e)
+    } catch (error) {
+      await settleCall($, e.tool_use_id, { isError: true, text: String(error) })
+      throw error
+    }
+    await settleCall($, e.tool_use_id, result)
+    return result
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -574,47 +605,18 @@ export function register(on) {
     return next(e)
   })
 
-  on('classic.PostToolUse', async ($, e, next) => {
-    try {
-      const c = calls.get(e.tool_use_id)
-      if (c) {
-        c.status = 'ok'
-        c.ms = e.duration_ms
-      }
-      if (isOpen) $.ui.invalidate('ui.render')
-    } catch {}
-    return next(e)
-  })
-
-  on('classic.PostToolUseFailure', async ($, e, next) => {
-    try {
-      const c = calls.get(e.tool_use_id)
-      if (c) {
-        c.status = 'failed'
-        c.ms = e.duration_ms
-        c.error = clip(e.error ?? '', 120)
-      }
-      if (isOpen) $.ui.invalidate('ui.render')
-    } catch {}
-    return next(e)
-  })
-
   // What Claude Code adds to the prompt. This hook only watches; it never rewrites the text.
-  on('prompt.attachment', async ($, e, next) => {
-    try {
-      attachments.push({ t: await $.clock.now(), type: e.type, origin: e.origin, agentId: e.agentId, text: String(e.text ?? '').slice(0, PREVIEW) })
-      if (attachments.length > MAX_ATTACHMENTS) attachments.shift()
-      if (isOpen) $.ui.invalidate('ui.render')
-    } catch {}
-    return next(e)
-  })
-
-  on('prompt.context', async ($, e, next) => {
-    try {
-      instructionFiles = (e.instructionFiles ?? []).map((f) => ({ path: f.path, kind: f.kind }))
-    } catch {}
-    return next(e)
-  })
+  attachmentsOn = options?.promptAttachments !== false
+  if (attachmentsOn) {
+    on('prompt.attachment', async ($, e, next) => {
+      try {
+        attachments.push({ t: await $.clock.now(), type: e.type, origin: e.origin, agentId: e.agentId, text: String(e.text ?? '').slice(0, PREVIEW) })
+        if (attachments.length > MAX_ATTACHMENTS) attachments.shift()
+        if (isOpen) $.ui.invalidate('ui.render')
+      } catch {}
+      return next(e)
+    })
+  }
 
   // A new prompt starts a new "this turn"
   on('prompt.submit', async ($, e, next) => {
@@ -1150,11 +1152,13 @@ export function register(on) {
                 ],
               })
             })
-          : [dim('Nothing added yet. Reminders and notes show up here as Claude Code adds them.')]
-
-        const instRows = instructionFiles.length
-          ? instructionFiles.map((f, i) => row([Text({ dimColor: true, children: [f.kind] }), Text({ wrap: 'truncate-start', children: [shortPath(f.path)] })], { key: 'inst-' + i }))
-          : [dim('None reported.')]
+          : [
+              dim(
+                attachmentsOn
+                  ? 'Nothing added yet. Reminders and notes show up here as Claude Code adds them.'
+                  : 'Off. Turn it on (a) unless an organization plugin keeps this event from Lens.',
+              ),
+            ]
 
         const lists = []
         if (items) {
@@ -1189,8 +1193,24 @@ export function register(on) {
         }
 
         body = [
-          section(title('◆ added to the prompt', added + ' this turn'), rows),
-          section(title('◆ instruction files', String(instructionFiles.length)), instRows),
+          section(
+            Box({
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              children: [
+                Text({ bold: true, color: ACCENT, children: ['◆ added to the prompt'] }),
+                Box({
+                  flexDirection: 'row',
+                  columnGap: 2,
+                  children: [
+                    ...(attachmentsOn ? [Text({ dimColor: true, children: [added + ' this turn'] })] : []),
+                    pick('toggle-attachments', attachmentsOn ? 'turn off' : 'turn on', 'a', !attachmentsOn, () => toggleAttachments($)),
+                  ],
+                }),
+              ],
+            }),
+            rows,
+          ),
           ...lists,
         ]
       }
