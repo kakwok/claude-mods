@@ -8,7 +8,7 @@ Each directory is a complete plugin. Needs Claude Code v2.1.287 or later.
 | Mod | What it does |
 |---|---|
 | [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model, 5h and weekly plan usage with reset countdowns, and what the last turn added to the context: colored by size at the head of the legend (blue, amber from 5k, red from 20k) and leading the summary line after each turn. Shown by default; `/context-bar` hides or shows it. |
-| [`lens`](lens) | One pane for the session, tabs switched with `1`–`4`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents / Timeline**: plan checklist, subagents with status, runtime and tokens, and a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens agents\|timeline\|activity\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
+| [`lens`](lens) | One pane for the session, tabs switched with `1`–`3`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents**: plan checklist, subagents with status, runtime and tokens, and under them a timeline with a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens activity\|agents\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
 
 ## Screens
 
@@ -39,7 +39,7 @@ After each turn, in the transcript:
 **Activity** (`1`): changed files as a tree (`●` marks the ones changed since your latest prompt), commands and recent tool calls. Press `▸ n more` to expand a list, `▴ show less` to fold it.
 
 ```text
-1: Activity   2: Agents   3: Timeline   4: Context
+1: Activity   2: Agents   3: Context
 
 ◆ files changed  6 · 4 read · ● 3 last turn    r: show reads
 ├─ src/
@@ -73,62 +73,47 @@ After each turn, in the transcript:
   ▸ 16 more
 ```
 
-**Agents** (`2`): plan checklist and subagents with status, runtime and tokens.
+**Agents** (`2`): plan checklist, subagents with status, runtime and tokens, and a timeline with a lane per agent, colored by what it was doing.
 
 ```text
-1: Activity   2: Agents   3: Timeline   4: Context
+1: Activity   2: Agents   3: Context
 
-◆ plan                                                    2 of 5
+◆ plan                                                2 of 5
 ✔ Map the auth flow
 ✔ Write parser tests
 ▶ Reviewing the diff
 ○ Fix flagged issues
 ○ Update the README
 
-◆ agents                 1 running · 2 done · 1 failed · 22k tok
+◆ agents             1 running · 2 done · 1 failed · 22k tok
 
-✔ map auth flow Explore                         00:25 · 4.1k tok
+✔ map auth flow Explore                     00:25 · 4.1k tok
   Read ~/proj/src/session.py · 5 tools
 
-✔ write parser tests general-purpose            01:22 · 9.6k tok
+✔ write parser tests general-purpose        01:22 · 9.6k tok
   Bash pytest tests/test_parser.py -q · 9 tools
 
-  ✖ find fixtures Explore                         00:22 · 1.4k …
+  ✖ find fixtures Explore                     00:22 · 1.4k …
     Grep fixture · 2 tools
 
-● review the diff code-reviewer                 00:32 · 6.7k tok
+● review the diff code-reviewer             00:32 · 6.7k tok
   Grep TODO · 4 tools
-```
 
-**Timeline** (`3`): a lane per agent, colored by what it was doing.
-
-```text
-1: Activity   2: Agents   3: Timeline   4: Context
-
-◆ plan                                                    2 of 5
-✔ Map the auth flow
-✔ Write parser tests
-▶ Reviewing the diff
-○ Fix flagged issues
-○ Update the README
-
-◆ agents                 1 running · 2 done · 1 failed · 22k tok
-
-✔ map auth flow  ███████░░███·
-✔ write parser…    ██████·▓▓▓▓▓▓▒▒▒·▓▓▓·▒▒▒·▓▓▓·▒▒▒·········
-✖  find fixtur…                 ·█████······
-● review the d…                                 ▒▒▒·██████··███·
-
-                 00:00                                     01:37
+◆ timeline
+✔ map auth flow  ██████░░███·
+✔ write parser…    █████·▓▓▓▓▓·▒▒··▓▓·▒▒▒·▓▓▓▒▒▒········
+✖  find fixtur…                ·████······
+● review the d…                              ·▒▒▒██████·███·
+                 00:00                                 01:37
 
 █ read/search  ▓ edit  ▒ shell  ░ web  ◆ agent  ▪ other
 · thinking
 ```
 
-**Context** (`4`): what Claude Code added to the prompt, memory files, MCP and skills.
+**Context** (`3`): what Claude Code added to the prompt, memory files, MCP and skills.
 
 ```text
-1: Activity   2: Agents   3: Timeline   4: Context
+1: Activity   2: Agents   3: Context
 
 ◆ added to the prompt                                3 this turn
 ▸ edited_text_file ×2 engine

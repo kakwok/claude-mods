@@ -1,6 +1,6 @@
-// Lens: one pane for the session: a plan checklist, subagents (roster and timeline), and a ledger of
+// Lens: one pane for the session: a plan checklist, subagents (roster with their timeline under it), and a ledger of
 // what Claude did (Activity) and what Claude Code added to the prompt (Context).
-// Digits 1-4 switch tabs while the pane has the keyboard. /lens opens it; /lens <view> picks a tab.
+// Digits 1-3 switch tabs while the pane has the keyboard. /lens opens it; /lens <view> picks a tab.
 // The pane opens by itself when agents are deployed, and a few seconds after the last
 // one finishes it folds into a one-line band above the prompt; the band's "expand"
 // (or /lens) brings the full pane back.
@@ -50,8 +50,8 @@ const FEED_ROWS = 6
 // How many rows a section shows once its "more" is expanded
 const OPEN_ROWS = 100
 // The tabs, in the order the bar shows them; each one's hotkey is its place
-const TABS = { activity: 'Activity', roster: 'Agents', timeline: 'Timeline', context: 'Context' }
-const TAB_ORDER = ['activity', 'roster', 'timeline', 'context']
+const TABS = { activity: 'Activity', roster: 'Agents', context: 'Context' }
+const TAB_ORDER = ['activity', 'roster', 'context']
 
 // Claude's todo list, from its TodoWrite calls: [{ content, status, activeForm }]
 let plan = []
@@ -569,7 +569,7 @@ export function register(on, options) {
       await $.command.register({
         name: 'lens',
         description: 'Show or hide the session pane: plan, agents, activity, context',
-        argumentHint: '[agents | timeline | activity | context | demo | demo off]',
+        argumentHint: '[activity | agents | context | demo | demo off]',
         immediate: true,
       })
     } catch {}
@@ -630,7 +630,8 @@ export function register(on, options) {
   // /lens toggles the pane; /lens <view> opens it on that tab (again, to close it)
   on('command.run', { command: 'lens' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
-    const VIEWS = { agents: 'roster', roster: 'roster', timeline: 'timeline', activity: 'activity', context: 'context' }
+    // timeline is the Agents tab now, which shows it under the roster
+    const VIEWS = { agents: 'roster', roster: 'roster', timeline: 'roster', activity: 'activity', context: 'context' }
     if (arg === 'demo') {
       const now = await $.clock.now()
       loadDemo(now)
@@ -647,7 +648,7 @@ export function register(on, options) {
       return { text: 'demo cleared' }
     }
     if (arg && !(arg in VIEWS)) {
-      return { text: 'usage: /lens [agents | timeline | activity | context | demo | demo off]' }
+      return { text: 'usage: /lens [activity | agents | context | demo | demo off]' }
     }
     // Asking for the tab already showing, or for no tab while open, closes the pane
     if (isOpen && (!arg || VIEWS[arg] === view)) {
@@ -946,8 +947,12 @@ export function register(on, options) {
       ]
     }
 
-    const body =
-      agents.length === 0 ? (plan.length ? [] : [empty]) : view === 'roster' ? roster : [Box({ flexDirection: 'column', children: lanes }), axis, legend]
+    // The roster, then the same agents on a shared clock
+    const timeline = Box({
+      flexDirection: 'column',
+      children: [Text({ bold: true, color: ACCENT, children: ['◆ timeline'] }), ...lanes, axis],
+    })
+    const body = agents.length === 0 ? (plan.length ? [] : [empty]) : [...roster, timeline, legend]
 
     // The ledger tabs
     if (view === 'activity' || view === 'context') {

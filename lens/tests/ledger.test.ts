@@ -240,11 +240,11 @@ test('Activity comes first, "more" expands, and the last turn is marked', async 
   console.log('\nheader marks 1 file from the last turn: ' + marked)
   if (!marked) throw new Error('the last turn was not marked')
 
-  // Hotkeys follow the order on the bar: Activity is 1, Context 4
+  // Hotkeys follow the order on the bar: Activity is 1, Context 3
   const hotkeys: Record<string, string> = {}
-  for (const id of ['activity', 'roster', 'timeline', 'context']) hotkeys[id] = ((await ui.find({ key: 'tab-' + id })) as any)?.props.hotkey
+  for (const id of ['activity', 'roster', 'context']) hotkeys[id] = ((await ui.find({ key: 'tab-' + id })) as any)?.props.hotkey
   console.log('tab hotkeys: ' + JSON.stringify(hotkeys))
-  if (JSON.stringify(hotkeys) !== JSON.stringify({ activity: '1', roster: '2', timeline: '3', context: '4' })) throw new Error('tab hotkeys out of order')
+  if (JSON.stringify(hotkeys) !== JSON.stringify({ activity: '1', roster: '2', context: '3' })) throw new Error('tab hotkeys out of order')
   await ui.press({ key: 'tab-context' })
   if (!(await ui.find({ type: 'Text', text: /added to the prompt/ }))) throw new Error('the Context tab was not shown')
   await ui.press({ key: 'tab-activity' })

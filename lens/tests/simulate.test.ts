@@ -155,11 +155,8 @@ test('simulate a multi-agent session', async ($, on) => {
   await at(44)
   await call('a2', { tool: 'Bash', command: 'pytest tests/test_parser.py -q' })
   await at(47)
-  await ui.press({ key: 'tab-timeline' })
-  await show('47s in: timeline')
   await ui.press({ key: 'tab-roster' })
-  await show('47s in: roster')
-  await ui.press({ key: 'tab-timeline' })
+  await show('47s in: agents')
 
   // 50s onward: tests pass, a reviewer starts
   await at(52)
@@ -176,9 +173,7 @@ test('simulate a multi-agent session', async ($, on) => {
   await at(72)
   await call('a4', { tool: 'Grep', pattern: 'TODO' })
   await at(84)
-  await show('84s in: timeline')
-  await ui.press({ key: 'tab-roster' })
-  await show('84s in: roster')
+  await show('84s in: agents')
 
   // 85s: the reviewer finishes, so nothing is running; the pane waits a few seconds
   // Claude Code may also drop finished agents from its list; the roster has to keep them
@@ -190,7 +185,6 @@ test('simulate a multi-agent session', async ($, on) => {
   await show('95s in: folded into a band above the prompt', band)
 
   // expand again to check past activity
-  await ui.press({ key: 'tab-timeline' })
   await $.command.run({ command: 'lens', args: '' })
   await at(110)
   console.log('\n110s, after /lens: ' + log.join('; '))
@@ -221,8 +215,6 @@ test('/lens demo shows a full sample session', async ($, on) => {
     console.log('└' + '─'.repeat(w + 2) + '┘')
   }
   await ui.press({ key: 'tab-roster' })
-  await dump('demo: roster tab')
-  await ui.press({ key: 'tab-timeline' })
-  await dump('demo: timeline tab')
+  await dump('demo: agents tab')
   console.log('\n' + (await $.command.run({ command: 'lens', args: 'demo off' })).text)
 })
