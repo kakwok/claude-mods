@@ -142,14 +142,29 @@ claude-in-chrome                                  0 of 21 loaded
 ◆ skills                              47 of 47 listed · 8.3k tok
 ```
 
-## Get the mods
+## Install
+
+This repository is a plugin marketplace. At the prompt of a terminal session:
+
+```
+/plugin install context-bar --marketplace kakwok/claude-mods
+/plugin install lens --marketplace kakwok/claude-mods
+```
+
+Answer `y` to add the marketplace, then pick a scope (user loads it in every session). From a shell, use
+`claude plugin install <mod> --marketplace kakwok/claude-mods`. In the desktop app, click + next to the
+prompt box, then Plugins, Add marketplace with `kakwok/claude-mods`, then Add plugin.
+
+To update after a new release: `/plugin marketplace update claude-mods`.
+
+## Run from a clone
+
+For developing, or to pin a release, load a mod from its folder instead (not both, or it loads twice):
 
 ```bash
 git clone https://github.com/kakwok/claude-mods.git ~/mods
 cd ~/mods && git checkout v0.1.0    # or stay on main for the latest
 ```
-
-## Use a mod
 
 Try one for a session:
 

@@ -1,0 +1,17 @@
+{
+  "name": "claude-mods",
+  "owner": {
+    "name": "Martin Kwok"
+  },
+  "description": "Martin Kwok's Claude Code mods: context-bar (context window, plan usage, model color) and lens (activity, agents, context pane)",
+  "plugins": [
+    {
+      "name": "context-bar",
+      "source": "./context-bar"
+    },
+    {
+      "name": "lens",
+      "source": "./lens"
+    }
+  ]
+}
