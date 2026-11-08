@@ -115,6 +115,7 @@ function kindOf(tool) {
 
 // "Grep login", "Read ~/proj/src/auth.py", "Bash npm test"
 function describeTool(e) {
+  if (e.tool === 'Bash') return 'Bash ' + clip(e.description || shortCommand(e.command ?? ''), 80)
   const arg = e.file_path ?? e.path ?? e.command ?? e.pattern ?? e.query ?? e.url ?? e.description ?? ''
   const text = String(arg).replace(/^\/Users\/[^/]+/, '~').replace(/\s+/g, ' ').slice(0, 80)
   return e.tool + (text ? ' ' + text : '')
@@ -257,6 +258,25 @@ function clip(text, n) {
   return one.length > n ? one.slice(0, n - 1) + '…' : one
 }
 
+// "cd /Users/me/proj/web && npm test" -> "web: npm test": the first line alone, a leading cd as a prefix,
+// paths under the project relative to it and deep ones cut to their last two parts
+function shortCommand(cmd) {
+  const lines = String(cmd).trim().split('\n')
+  let text = lines[0].trim()
+  let dir = ''
+  for (let m; (m = text.match(/^cd\s+("[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/)); text = text.slice(m[0].length)) dir = m[1].replace(/^["']|["']$/g, '')
+  text = text.replace(/(^|[\s='"(])(\/[^\s'"|;&)]+)/g, (_, lead, p) => lead + shortArg(p))
+  if (dir && dir !== cwd) text = shortArg(dir) + ': ' + text
+  return text + (lines.length > 1 ? ' …' : '')
+}
+
+function shortArg(p) {
+  if (p === cwd) return '.'
+  const out = shortPath(p)
+  const parts = out.split('/')
+  return parts.length > 4 ? '…/' + parts.slice(-2).join('/') : out
+}
+
 function shortPath(p) {
   let out = p
   if (cwd && out.startsWith(cwd + '/')) out = out.slice(cwd.length + 1)
@@ -348,7 +368,7 @@ function loadLedgerDemo(now) {
   cwd = '/Users/kkwok/proj'
   const call = (n, ago_s, agentId, tool, args, status, ms, error) => {
     const e = { tool, ...args }
-    addCall({ id: 'demo-' + n, t: now - ago_s * 1000, agentId, tool, target: targetOf(e), kind: kindOf(tool), status, ms, error })
+    addCall({ id: 'demo-' + n, t: now - ago_s * 1000, agentId, tool, target: targetOf(e), desc: e.description, kind: kindOf(tool), status, ms, error })
   }
   call(1, 170, undefined, 'Read', { file_path: '/Users/kkwok/proj/src/auth.py' }, 'ok', 12)
   call(2, 160, undefined, 'Grep', { pattern: 'login' }, 'ok', 40)
@@ -362,7 +382,7 @@ function loadLedgerDemo(now) {
   call(10, 60, 'a1', 'Read', { file_path: '/Users/kkwok/proj/README.md' }, 'ok', 7)
   call(11, 40, undefined, 'WebFetch', { url: 'https://example.com/oauth/flows' }, 'ok', 800)
   call(12, 25, undefined, 'Edit', { file_path: '/Users/kkwok/proj/src/session.py' }, 'ok', 13)
-  call(13, 12, undefined, 'Bash', { command: 'git diff --stat' }, 'ok', 90)
+  call(13, 12, undefined, 'Bash', { command: 'cd /Users/kkwok/proj/web && npm run build 2>&1 | tail -5', description: 'Build the web app' }, 'ok', 900)
   call(19, 175, undefined, 'Bash', { command: 'git status --short' }, 'ok', 40)
   call(20, 140, undefined, 'Bash', { command: 'ruff check src' }, 'ok', 300)
   call(21, 65, undefined, 'Bash', { command: 'pytest tests/unit -q' }, 'ok', 2400)
@@ -488,6 +508,7 @@ async function recordCall($, e) {
       agentId: e.agentId,
       tool: e.tool,
       target: targetOf(e),
+      desc: e.tool === 'Bash' && typeof e.description === 'string' ? e.description : undefined,
       kind: kindOf(e.tool),
       status: 'running',
     })
@@ -1079,8 +1100,10 @@ export function register(on, options) {
                   children: [
                     row([
                       Text({ color: c.status === 'failed' ? BAD : c.status === 'running' ? BLUE : OK, children: [c.status === 'failed' ? '✖' : c.status === 'running' ? '●' : '✔'] }),
-                      Text({ wrap: 'truncate-end', children: [clip(c.target, 80)] }),
+                      Text({ wrap: 'truncate-end', children: [c.desc ? clip(c.desc, 80) : clip(shortCommand(c.target), 200)] }),
                     ]),
+                    // The command itself on a line of its own, wrapped, so the description does not crowd it out
+                    ...(c.desc ? [Box({ paddingLeft: 2, children: [Text({ dimColor: true, wrap: 'wrap', children: [clip(shortCommand(c.target), 200)] })] })] : []),
                     ...(c.status === 'failed' && c.error ? [dim('    ' + c.error)] : []),
                   ],
                 }),
@@ -1102,7 +1125,7 @@ export function register(on, options) {
                       children: [
                         Text({ color: KINDS[c.kind].color, children: ['█'] }),
                         Text({ bold: true, children: [c.tool] }),
-                        Text({ dimColor: true, wrap: 'truncate-start', children: [c.kind === 'run' ? clip(c.target, 40) : shortPath(c.target)] }),
+                        Text({ dimColor: true, wrap: 'truncate-start', children: [c.kind === 'run' ? clip(shortCommand(c.target), 60) : shortPath(c.target)] }),
                       ],
                     }),
                     Text({ color: c.status === 'failed' ? BAD : undefined, dimColor: c.status !== 'failed', children: [(c.agentId ? '↳ ' : '') + ago(now - c.t)] }),

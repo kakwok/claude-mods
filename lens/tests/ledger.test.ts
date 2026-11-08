@@ -294,3 +294,23 @@ test('a command that fails is marked from tool.call alone', async ($, on) => {
   console.log('\nfailed command shows its error: ' + failed + ', any still running: ' + stuck)
   if (!failed || stuck) throw new Error('tool.call results did not settle the commands')
 })
+
+test('commands show their description and a short form of the command', async ($, on) => {
+  const clock = mock.clock(on)
+  stubs(on, clock)
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/Users/kkwok/proj' })
+  const bash = async (n: number, command: string, description?: string) => {
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'toolu_' + n, command, description } as any)
+    await clock.advance(1000)
+  }
+  await bash(1, 'cd /Users/kkwok/proj && pytest /Users/kkwok/proj/tests -q')
+  await bash(2, 'cd /Users/kkwok/proj/web && npm run build', 'Build the web app')
+  await bash(3, "python3 /private/tmp/claude-502/session/scratchpad/probe.py <<'EOF'\nprint(1)\nEOF")
+  await $.command.run({ command: 'lens', args: '' })
+  const ui = await $.ui.mount(PANE)
+  for (const want of [/^pytest tests -q$/, /^Build the web app$/, /^web: npm run build$/, /^python3 …\/scratchpad\/probe\.py <<'EOF' …$/]) {
+    const el = (await ui.find({ type: 'Text', text: want })) as any
+    console.log(String(want) + ' -> ' + (el ? el.children.join('') : 'missing'))
+    if (!el) throw new Error('no row matching ' + want)
+  }
+})

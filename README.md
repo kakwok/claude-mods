@@ -7,13 +7,13 @@ Each directory is a complete plugin. Needs Claude Code v2.1.287 or later.
 
 | Mod | What it does |
 |---|---|
-| [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model, 5h and weekly plan usage with reset countdowns, and what the last turn added to the context: colored by size at the head of the legend (blue, amber from 5k, red from 20k) and leading the summary line after each turn. Shown by default; `/context-bar` hides or shows it. |
-| [`lens`](lens) | One pane for the session, tabs switched with `1`–`3`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents**: plan checklist, subagents with status, runtime and tokens, and under them a timeline with a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens activity\|agents\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
+| [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model, and 5h and weekly plan usage with reset countdowns. After each turn, a line under the turn's duration (`✻ Baked for 42s`) says what the turn added to the context, colored by size (blue, amber from 5k, red from 20k), with output tokens and cache hit rate. Shown by default; `/context-bar` hides or shows both. |
+| [`lens`](lens) | One pane for the session, tabs switched with `1`–`3`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail, Claude's description of each with the shortened command below it) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents**: plan checklist, subagents with status, runtime and tokens, and under them a timeline with a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens activity\|agents\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
 
 ## Screens
 
 Plain-text renders of each mod's demo data (`/lens demo`, and a sample reading for the context bar).
-The real panes use color: in the bar below each category gets its own color and `▲ +2k last turn` is blue, amber or red by size, and in the timeline `█▓▒░` stand
+The real panes use color: in the bar below each category gets its own color, the `▲ +2k` after each turn is blue, amber or red by size, and in the timeline `█▓▒░` stand
 for read/search, edit, shell and web.
 
 ### context-bar
@@ -22,21 +22,22 @@ for read/search, edit, shell and web.
 ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ ◆ context · claude-opus-5-5          187k of 1M · 19%  │  5h ███ ░░░ 42% ⏱ 2h05m  ·  wk █████ ░ 78% ⏱ 3d4h │
 │ ███████████████████████▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │
-│ ▲ +2k last turn  ■ messages 141k 14%  ■ tools 14k 1%  ■ system prompt 9.8k 1%  ■ skills 8.3k 1%            │
-│ ■ mcp tools 6.4k 1%  ■ memory files 3.6k 0%  ■ agents 2.1k 0%  ■ mcp instructions 1.9k 0%                  │
-│ ■ autocompact buffer 45k 5%  ■ free 768k                                                                   │
+│ ■ messages 141k 14%  ■ tools 14k 1%  ■ system prompt 9.8k 1%  ■ skills 8.3k 1%  ■ mcp tools 6.4k 1%        │
+│ ■ memory files 3.6k 0%  ■ agents 2.1k 0%  ■ mcp instructions 1.9k 0%  ■ autocompact buffer 45k 5%          │
+│ ■ free 768k                                                                                                │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-After each turn, in the transcript:
+After each turn, under its duration line in the transcript:
 
 ```text
-⏺ context-bar: ▲ +2k context last turn → 187k · out 1.3k · session 16k · cache 99%
+✻ Baked for 42s
+  ▲ +2k context last turn → 187k · out 1.3k · session 16k · cache 99%
 ```
 
 ### lens
 
-**Activity** (`1`): changed files as a tree (`●` marks the ones changed since your latest prompt), commands and recent tool calls. Press `▸ n more` to expand a list, `▴ show less` to fold it.
+**Activity** (`1`): changed files as a tree (`●` marks the ones changed since your latest prompt), commands and recent tool calls. A command shows Claude's description of it, with the command itself on the line below, dimmed and shortened (recent activity shows the shortened command): first line only, a leading `cd` folded into a `dir:` prefix, paths relative to the project and deep paths cut to `…/<last two parts>`. Press `▸ n more` to expand a list, `▴ show less` to fold it.
 
 ```text
 1: Activity   2: Agents   3: Context
@@ -55,7 +56,8 @@ After each turn, in the transcript:
    └─ ✎ test_auth.py                             ×1 · 1m ago
 
 ◆ commands                                      7 · 1 failed
-✔ git diff --stat
+✔ Build the web app
+  web: npm run build 2>&1 | tail -5
 ✔ ruff check src
 ✔ pytest tests/unit -q
 ✔ pytest tests/test_auth.py -q
@@ -65,7 +67,7 @@ After each turn, in the transcript:
 
 ◆ recent activity                                   22 calls
 ▓ Edit src/auth.py                                    3s ago
-▒ Bash git diff --stat                               12s ago
+▒ Bash web: npm run build 2>&1 | tail -5             12s ago
 ▓ Edit src/api/models.py                           ↳ 20s ago
 ▓ Edit src/session.py                                25s ago
 ▒ Bash ruff check src                                35s ago
