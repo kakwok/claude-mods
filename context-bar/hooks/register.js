@@ -1,5 +1,5 @@
 // Context bar above the prompt: one stacked segment per /context category,
-// plan-limit usage in the header, and a one-line summary after each turn.
+// plan-limit usage in the header, and a summary under each turn's duration line.
 // Shown by default; /context-bar toggles it.
 
 // Colors by category name, as /context names them
@@ -33,10 +33,15 @@ let breakdown = null
 let rateLimits = []
 let visible = true
 
-// Context tokens after the previous turn, how much the last turn added, and output tokens generated this session
+// Context tokens after the previous turn, and output tokens generated this session
 let lastContext = null
-let lastDelta = null
 let outTotal = 0
+
+// Each turn's summary, waiting for the duration line that closes the turn, and the lines that took one (by requestId).
+// turn.complete and the line measure the turn a few ms apart, so a summary goes to the unclaimed line nearest its duration.
+const pending = []
+const claimed = new Map()
+const NEAR_MS = 5_000
 
 // Blue for a small turn, amber from 5k, red from 20k: a turn that size is worth a look
 function deltaColor(delta) {
@@ -109,18 +114,52 @@ export function register(on) {
     const now = (await $.session.usage()).context.tokens
     const delta = now !== undefined && lastContext !== null ? now - lastContext : null
     if (now !== undefined) lastContext = now
-    lastDelta = delta
 
     if (!visible) return next(e)
     await refresh($)
 
-    // The line is plain text, so the context cost leads it; the band above the prompt shows it in color
+    // A plugin's turn.complete text is a plain notice, so the summary is drawn under the turn's duration line instead
     const input = e.usage.input_tokens + e.usage.cache_read_input_tokens + e.usage.cache_creation_input_tokens
     const parts = []
-    if (delta !== null) parts.push(signed(delta) + ' context last turn → ' + fmt(now))
+    if (delta !== null) parts.push('context last turn → ' + fmt(now))
     parts.push('out ' + fmt(e.usage.output_tokens) + ' · session ' + fmt(outTotal))
     if (input > 0) parts.push('cache ' + Math.round((e.usage.cache_read_input_tokens / input) * 100) + '%')
-    return { text: parts.join(' · '), usage: e.usage }
+    pending.push({ durationMs: e.durationMs, delta, rest: parts.join(' · ') })
+    $.ui.invalidate('ui.render')
+    return next(e)
+  })
+
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    const line = await next(e)
+    let summary = claimed.get(e.requestId)
+    if (!summary && pending.length) {
+      let best = -1
+      for (let i = 0; i < pending.length; i++) {
+        const off = Math.abs(pending[i].durationMs - e.props.durationMs)
+        if (off <= NEAR_MS && (best < 0 || off < Math.abs(pending[best].durationMs - e.props.durationMs))) best = i
+      }
+      if (best >= 0) {
+        summary = pending.splice(best, 1)[0]
+        claimed.set(e.requestId, summary)
+      }
+    }
+    if (!summary || !visible) return line
+    const { Box, Text } = $.ui.resolve(e)
+    return Box({
+      flexDirection: 'column',
+      children: [
+        line,
+        Box({
+          flexDirection: 'row',
+          columnGap: 1,
+          paddingLeft: 2,
+          children: [
+            ...(summary.delta !== null ? [Text({ bold: true, color: deltaColor(summary.delta), children: [signed(summary.delta)] })] : []),
+            Text({ dimColor: true, children: [summary.rest] }),
+          ],
+        }),
+      ],
+    })
   })
 
   on('command.run', { command: 'context-bar' }, async ($) => {
@@ -251,28 +290,11 @@ export function register(on) {
       ],
     })
 
-    // What the last turn added leads the legend: the header has no room for it beside the plan limits,
-    // and the legend wraps where the header would overflow
-    const delta =
-      lastDelta !== null
-        ? [
-            Box({
-              key: 'delta',
-              flexDirection: 'row',
-              columnGap: 1,
-              children: [
-                Text({ bold: true, color: deltaColor(lastDelta), children: [signed(lastDelta)] }),
-                Text({ dimColor: true, children: ['last turn'] }),
-              ],
-            }),
-          ]
-        : []
-
     const box = Box({
       flexDirection: 'column',
       borderStyle: 'round',
       paddingX: 1,
-      children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [...delta, ...legend] })],
+      children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: legend })],
     })
     return rest.length ? Box({ flexDirection: 'column', children: [box, ...rest] }) : box
   })
