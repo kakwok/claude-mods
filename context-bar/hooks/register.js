@@ -21,6 +21,20 @@ const TRACK = '#2a3a5e'
 const AMBER = '#e3b341'
 const RED = '#e5534b'
 
+// One color per model family, for the model name and the band's frame, so a session on another model stands out
+const FAMILIES = {
+  opus: '#a78bfa',
+  sonnet: '#4ade80',
+  haiku: '#38bdf8',
+  fable: '#f472b6',
+}
+
+function familyColor(model) {
+  const m = String(model ?? '').toLowerCase()
+  for (const [family, color] of Object.entries(FAMILIES)) if (m.includes(family)) return color
+  return undefined
+}
+
 // Shorter legend labels than /context prints
 const LABELS = {
   'system tools': 'tools',
@@ -259,6 +273,7 @@ export function register(on) {
     // On a very narrow terminal the plan limits are the first thing to go
     const showLimits = limits.length > 0 && e.props.bodyColumns >= 80
 
+    const modelColor = familyColor(breakdown.model)
     const header = Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -269,7 +284,7 @@ export function register(on) {
           children: [
             Text({ bold: true, color: ACCENT, children: ['◆ context'] }),
             Text({ dimColor: true, children: ['·'] }),
-            Text({ children: [breakdown.model] }),
+            Text({ bold: Boolean(modelColor), color: modelColor, children: [breakdown.model] }),
           ],
         }),
         Box({
@@ -291,8 +306,10 @@ export function register(on) {
     })
 
     const box = Box({
+      key: 'frame',
       flexDirection: 'column',
       borderStyle: 'round',
+      ...(modelColor && { borderColor: modelColor }),
       paddingX: 1,
       children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: legend })],
     })

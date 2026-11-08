@@ -46,3 +46,22 @@ for (const [label, grow, color] of [['small', 1100, '#4f8bf0'], ['medium', 7000,
     if (el?.props.color !== color) throw new Error('expected ' + color)
   })
 }
+
+for (const [model, color] of [['claude-opus-5-5', '#a78bfa'], ['claude-sonnet-5-5', '#4ade80'], ['claude-haiku-5-5', '#38bdf8'], ['claude-fable-5-1', '#f472b6']] as const) {
+  test('the model name and frame share the ' + model + ' family color', async ($, on) => {
+    mock.clock(on)
+    on('session.start', () => ({ cwd: '/tmp' }))
+    on('command.register', () => ({ value: undefined }))
+    on('session.usage', () => {
+      const u = usage()
+      return { value: { ...u.value, context: { ...u.value.context, breakdown: { ...u.value.context.breakdown, model } } } }
+    })
+    on('ui.render', () => ({ type: 'Text', props: {}, children: [''] }))
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/tmp' })
+    const band = await $.ui.mount({ plugin: 'context-bar', component: 'AbovePrompt', requestId: 'band', surface: 'terminal', viewport: { columns: 140, rows: 40 }, props: { bodyColumns: 120, hasSurvey: false } } as any)
+    const name = (await band.find({ type: 'Text', text: model })) as any
+    const frame = (await band.find({ key: 'frame' })) as any
+    console.log(model + ': name ' + name?.props.color + ', frame ' + frame?.props.borderColor)
+    if (name?.props.color !== color || frame?.props.borderColor !== color) throw new Error('expected ' + color)
+  })
+}

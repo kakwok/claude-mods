@@ -7,13 +7,13 @@ Each directory is a complete plugin. Needs Claude Code v2.1.287 or later.
 
 | Mod | What it does |
 |---|---|
-| [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model, and 5h and weekly plan usage with reset countdowns. After each turn, a line under the turn's duration (`✻ Baked for 42s`) says what the turn added to the context, colored by size (blue, amber from 5k, red from 20k), with output tokens and cache hit rate. Shown by default; `/context-bar` hides or shows both. |
+| [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model (the name and the band's frame share a color per model family: Opus violet, Sonnet green, Haiku blue, Fable pink, so a session on an unexpected model stands out), and 5h and weekly plan usage with reset countdowns. After each turn, a line under the turn's duration (`✻ Baked for 42s`) says what the turn added to the context, colored by size (blue, amber from 5k, red from 20k), with output tokens and cache hit rate. Shown by default; `/context-bar` hides or shows both. |
 | [`lens`](lens) | One pane for the session, tabs switched with `1`–`3`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail, Claude's description of each with the shortened command below it) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents**: plan checklist, subagents with status, runtime and tokens, and under them a timeline with a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens activity\|agents\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
 
 ## Screens
 
 Plain-text renders of each mod's demo data (`/lens demo`, and a sample reading for the context bar).
-The real panes use color: in the bar below each category gets its own color, the `▲ +2k` after each turn is blue, amber or red by size, and in the timeline `█▓▒░` stand
+The real panes use color: the context bar's frame and model name take the model family's color, in the bar below each category gets its own color, the `▲ +2k` after each turn is blue, amber or red by size, and in the timeline `█▓▒░` stand
 for read/search, edit, shell and web.
 
 ### context-bar
@@ -142,6 +142,13 @@ claude-in-chrome                                  0 of 21 loaded
 ◆ skills                              47 of 47 listed · 8.3k tok
 ```
 
+## Get the mods
+
+```bash
+git clone https://github.com/kakwok/claude-mods.git ~/mods
+cd ~/mods && git checkout v0.1.0    # or stay on main for the latest
+```
+
 ## Use a mod
 
 Try one for a session:
@@ -182,3 +189,10 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 ```
 
 Run a mod's tests with `claude plugin test ~/mods/lens`.
+
+## Releases
+
+**v0.1.0**, the first release:
+
+- `context-bar`: context window by category, plan usage with reset countdowns, the model name and frame colored by model family, and a colored per-turn summary (`▲ +2k context last turn → …`) under each turn's duration line.
+- `lens`: Activity (changed files with last-turn marks, commands led by Claude's description with a shortened command, recent tool calls), Agents (plan, subagents, timeline) and Context (what Claude Code adds to the prompt, memory files, MCP and skills) tabs.
