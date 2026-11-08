@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-mods demo</title>
+<meta name="description" content="Interactive demo of context-bar and lens, two Claude Code mods.">
+<style>
+  :root {
+    --page: #ffffff;
+    --term: #ffffff;
+    --term-edge: #dcdfe6;
+    --text: #16181d;
+    --dim: #6a6f7c;
+    --faint: #a4a9b5;
+    --accent: #d97757;
+    --ok: #5fb878;
+    --bad: #e5534b;
+    --blue: #4f8bf0;
+    --amber: #e3b341;
+    --chip: #f4f5f8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--page); color: var(--text); font-family: var(--sans); line-height: 1.5; }
+  a { color: #1f5fd6; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 24px 16px 48px; }
+  header h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
+  header h1 span { color: var(--accent); }
+  header p { margin: 6px 0 0; color: var(--dim); max-width: 70ch; }
+  .install { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .install code { font-family: var(--mono); font-size: 12.5px; background: var(--chip); border: 1px solid var(--term-edge); border-radius: 6px; padding: 5px 9px; overflow-wrap: anywhere; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; margin-top: 24px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .panel h2 { font-size: 15px; margin: 0 0 4px; }
+  .panel h2 .tag { font-family: var(--mono); color: var(--accent); }
+  .panel .lead { margin: 0 0 10px; color: var(--dim); font-size: 13.5px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 10px; font-size: 12.5px; color: var(--dim); }
+  .group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  button { font: inherit; font-size: 12.5px; color: var(--text); background: var(--chip); border: 1px solid var(--term-edge); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+  button:hover { border-color: #b8bdc8; }
+  button[aria-pressed="true"] { border-color: currentColor; }
+  .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+
+  /* terminal look */
+  .term { background: var(--term); border: 1px solid var(--term-edge); border-radius: 10px; overflow: hidden; box-shadow: 0 6px 24px rgba(20,24,34,.08); }
+  .bar { background: #f7f8fa; display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--term-edge); color: var(--dim); font-size: 12px; }
+  .bar i { width: 10px; height: 10px; border-radius: 50%; background: #d4d7de; display: inline-block; }
+  .bar b { margin-left: 8px; font-weight: 500; }
+  .screen { font-family: var(--mono); font-size: 12.5px; line-height: 1.55; padding: 10px 12px 12px; overflow-wrap: anywhere; }
+  #transcript, #band, #pane, .prompt { white-space: pre-wrap; }
+  .dim { color: var(--dim); }
+  .faint { color: var(--faint); }
+  .bold { font-weight: 700; }
+  .row { display: flex; gap: 8px; justify-content: space-between; }
+  .row > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+  .row > :last-child { flex: none; }
+  .clickable { cursor: pointer; }
+  .clickable:hover { text-decoration: underline; text-decoration-color: var(--faint); }
+
+  .transcript { height: 290px; overflow-y: auto; }
+  .transcript .msg { margin-bottom: 8px; }
+  .you { color: var(--dim); }
+  .you::before { content: "> "; }
+
+  /* context bar */
+  .band { border: 1px solid; border-radius: 9px; padding: 4px 9px 5px; margin: 6px 0 8px; transition: border-color .25s; }
+  .band.hidden { display: none; }
+  .bandhead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 16px; }
+  .meter { letter-spacing: -1px; }
+  .stack { display: flex; height: 12px; margin: 4px 0 5px; border-radius: 2px; overflow: hidden; }
+  .stack span { display: block; height: 100%; min-width: 3px; transition: flex-grow .4s; }
+  .stack span.buf { background-image: repeating-linear-gradient(135deg, #e6e9ef 0 3px, #cfd4dd 3px 6px) !important; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0 14px; }
+  .legend span b { font-weight: 400; }
+  .prompt { border-top: 1px solid var(--term-edge); border-bottom: 1px solid var(--term-edge); padding: 3px 2px; color: var(--dim); }
+
+  /* lens */
+  .tabs { display: flex; gap: 14px; margin-bottom: 10px; }
+  .tabs button { background: none; border: none; padding: 0; font-family: var(--mono); color: var(--dim); }
+  .tabs button[aria-selected="true"] { color: var(--text); font-weight: 700; text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--accent); }
+  .lens .screen { min-height: 560px; }
+  .sec { margin-bottom: 12px; }
+  .title { color: var(--accent); font-weight: 700; }
+  .lane { white-space: pre; }
+  .lane .cells { letter-spacing: 0; }
+  .kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--term-edge); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--text); }
+  .tip { position: fixed; pointer-events: none; background: #16181d; color: #fff; border: 1px solid #16181d; border-radius: 6px; padding: 3px 8px; font-family: var(--mono); font-size: 12px; display: none; z-index: 5; }
+  footer { margin-top: 28px; color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>claude-mods <span>demo</span></h1>
+    <p>Two Claude Code mods, drawn here with sample data: <b>context-bar</b> above the prompt, and the <b>lens</b> pane beside the chat. Everything is clickable.</p>
+    <div class="install"><code>/plugin install context-bar --marketplace kakwok/claude-mods</code><code>/plugin install lens --marketplace kakwok/claude-mods</code><a href="https://github.com/kakwok/claude-mods">GitHub →</a></div>
+  </header>
+
+  <div class="grid">
+    <section class="panel">
+      <h2><span class="tag">context-bar</span> · context, plan limits and model at a glance</h2>
+      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k.</p>
+      <div class="controls">
+        <div class="group" id="models">model:</div>
+        <div class="group">run a turn:
+          <button data-turn="1200">small</button><button data-turn="7000">medium</button><button data-turn="25000">large</button><button data-turn="compact">/compact</button>
+        </div>
+        <div class="group"><button id="toggleBar">/context-bar</button></div>
+      </div>
+      <div class="term">
+        <div class="bar"><i></i><i></i><i></i><b>claude · ~/proj</b></div>
+        <div class="screen">
+          <div class="transcript" id="transcript"></div>
+          <div class="band" id="band"></div>
+          <div class="prompt">&gt; <span class="faint">Try "run a turn" above</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel lens">
+      <h2><span class="tag">lens</span> · one pane for what Claude did</h2>
+      <p class="lead">Switch tabs with <span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> (or click). On Activity, <span class="kbd">r</span> shows files Claude only read. <span class="faint">▸ more</span> and <span class="faint">▸</span> rows expand.</p>
+      <div class="term">
+        <div class="bar"><i></i><i></i><i></i><b>Lens</b></div>
+        <div class="screen">
+          <div class="tabs" role="tablist" id="tabs"></div>
+          <div id="pane"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>Sample data, the same as <code>/lens demo</code>. Colors are the ones the mods draw with; your terminal's palette may shift them slightly. <a href="https://github.com/kakwok/claude-mods">Source and install steps on GitHub</a>.</footer>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+// ---------- shared ----------
+const BLUE = '#4f8bf0', AMBER = '#e3b341', RED = '#e5534b', OK = '#5fb878', ACCENT = '#d97757'
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+const c = (color, text, cls = '') => `<span class="${cls}" style="color:${color}">${esc(text)}</span>`
+const d = (text) => `<span class="dim">${esc(text)}</span>`
+
+function fmt(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M'
+  if (n >= 1e4) return Math.round(n / 1e3) + 'k'
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
+  return String(n)
+}
+const signed = (n) => (n >= 0 ? '▲ +' : '▼ -') + fmt(Math.abs(n))
+const deltaColor = (n) => (n >= 20000 ? RED : n >= 5000 ? AMBER : BLUE)
+const limitColor = (p) => (p >= 90 ? RED : p >= 75 ? AMBER : BLUE)
+function clock(ms) {
+  const s = Math.max(0, Math.round(ms / 1000))
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0')
+}
+function ago(ms) {
+  const s = Math.max(0, Math.round(ms / 1000))
+  return s < 60 ? s + 's ago' : s < 3600 ? Math.floor(s / 60) + 'm ago' : Math.floor(s / 3600) + 'h ago'
+}
+
+const tip = document.getElementById('tip')
+document.addEventListener('mousemove', (e) => {
+  const t = e.target.closest('[data-tip]')
+  if (!t) return (tip.style.display = 'none')
+  tip.textContent = t.dataset.tip
+  tip.style.display = 'block'
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + 'px'
+  tip.style.top = e.clientY + 14 + 'px'
+})
+
+// ---------- context-bar ----------
+const COLORS = {
+  'system prompt': '#7b9fd8', 'system tools': '#6bbfc6', 'mcp tools': '#8b7cf6', 'mcp server instructions': '#b4a9fa',
+  'custom agents': '#9bc57a', 'memory files': '#e3c26b', skills: '#e8a0bf', messages: '#d97757',
+}
+const LABELS = { 'system tools': 'tools', 'custom agents': 'agents', 'mcp server instructions': 'mcp instructions' }
+const FAMILIES = [
+  { name: 'Opus', model: 'claude-opus-5-5', color: '#a78bfa' },
+  { name: 'Sonnet', model: 'claude-sonnet-5-5', color: '#4ade80' },
+  { name: 'Haiku', model: 'claude-haiku-5-5', color: '#38bdf8' },
+  { name: 'Fable', model: 'claude-fable-5-1', color: '#f472b6' },
+  { name: 'other', model: 'custom-gateway-model', color: null },
+]
+const MAX = 1_000_000
+const WORDS = ['Baked', 'Brewed', 'Cooked', 'Simmered', 'Churned', 'Whisked']
+const PROMPTS = {
+  small: ['rename the session helper', 'Renamed `get_sess` to `load_session` in src/session.py.'],
+  medium: ['add tests for the token parser', 'Added 6 tests in tests/test_parser.py; all pass.'],
+  large: ['read the whole api module and summarize it', 'The api module has 14 routes across 5 files; summary below.'],
+  compact: ['/compact', 'Conversation compacted.'],
+}
+
+const cb = {
+  model: FAMILIES[0], shown: true, out: 1300, session: 16000,
+  cats: [
+    ['messages', 141000], ['system tools', 14000], ['system prompt', 9800], ['skills', 8300], ['mcp tools', 6400],
+    ['memory files', 3600], ['custom agents', 2100], ['mcp server instructions', 1900],
+  ],
+  buffer: 45000,
+  turns: [],
+}
+const used = () => cb.cats.reduce((s, [, t]) => s + t, 0)
+
+function meter(p) {
+  const on = Math.round((p / 100) * 6)
+  return c(limitColor(p), '█'.repeat(on), 'meter') + c('#e2e5eb', '█'.repeat(6 - on), 'meter')
+}
+
+function renderBand() {
+  const band = document.getElementById('band')
+  band.classList.toggle('hidden', !cb.shown)
+  const color = cb.model.color
+  band.style.borderColor = color || '#c4c8d2'
+  const total = used()
+  const pct = Math.round((total / MAX) * 100)
+  const sorted = [...cb.cats].sort((a, b) => b[1] - a[1])
+  const free = MAX - total - cb.buffer
+  const head = `<div class="bandhead"><span>${c(ACCENT, '◆ context', 'bold')} ${d('·')} <span class="${color ? 'bold' : ''}" style="color:${color || 'inherit'}">${esc(cb.model.model)}</span></span>`
+    + `<span><b>${fmt(total)}</b> ${d('of 1M · ' + pct + '%')}  ${d('│')}  ${d('5h')} ${meter(42)} 42% ${d('⏱ 2h05m')}  ${d('·')}  ${d('wk')} ${meter(78)} ${c(AMBER, '78%')} ${d('⏱ 3d4h')}</span></div>`
+  const seg = (name, tokens, color, cls = '') =>
+    `<span class="${cls}" style="flex-grow:${tokens};background:${color}" data-tip="${esc(name)} · ${fmt(tokens)} · ${Math.round((tokens / MAX) * 100)}%"></span>`
+  const stack = '<div class="stack">' + sorted.map(([n, t]) => seg(LABELS[n] ?? n, t, COLORS[n])).join('')
+    + seg('autocompact buffer', cb.buffer, '#e6e9ef', 'buf') + seg('free', free, '#eef0f4') + '</div>'
+  const item = (name, tokens, color, extra = true) =>
+    `<span data-tip="${esc(name)}: ${tokens.toLocaleString()} tokens">${c(color, '■')} <b>${esc(name)}</b> ${d(fmt(tokens) + (extra ? ' ' + Math.round((tokens / MAX) * 100) + '%' : ''))}</span>`
+  const legend = '<div class="legend">' + sorted.map(([n, t]) => item(LABELS[n] ?? n, t, COLORS[n])).join('')
+    + item('autocompact buffer', cb.buffer, '#b6bcc8') + item('free', free, '#b6bcc8', false) + '</div>'
+  band.innerHTML = head + stack + legend
+}
+
+function renderTranscript() {
+  const el = document.getElementById('transcript')
+  el.innerHTML = cb.turns.map((t) => {
+    const summary = t.delta === null ? '' :
+      `<div>  ${c(deltaColor(t.delta), signed(t.delta), 'bold')} ${d('context last turn → ' + fmt(t.now) + ' · out ' + fmt(t.out) + ' · session ' + fmt(t.session) + ' · cache ' + t.cache + '%')}</div>`
+    return `<div class="msg"><div class="you">${esc(t.prompt)}</div><div>${c('#16181d', '⏺')} ${esc(t.answer)}</div>`
+      + `<div class="dim">✻ ${t.word} for ${t.secs}s</div>${cb.shown ? summary : ''}</div>`
+  }).join('')
+  el.scrollTop = el.scrollHeight
+}
+
+function runTurn(kind) {
+  const before = used()
+  const sizeName = kind === 'compact' ? 'compact' : kind >= 20000 ? 'large' : kind >= 5000 ? 'medium' : 'small'
+  if (kind === 'compact') cb.cats[0][1] = 18000
+  else cb.cats[0][1] += kind + Math.round(Math.random() * 400 - 200)
+  if (used() > MAX - cb.buffer - 20000) cb.cats[0][1] = 18000
+  const out = kind === 'compact' ? 900 : 600 + Math.round(Math.random() * 2400)
+  cb.session += out
+  const now = used()
+  cb.turns.push({
+    prompt: PROMPTS[sizeName][0], answer: PROMPTS[sizeName][1], word: WORDS[cb.turns.length % WORDS.length],
+    secs: 4 + Math.round(Math.random() * 50), delta: now - before, now, out, session: cb.session, cache: 97 + Math.round(Math.random() * 2),
+  })
+  if (cb.turns.length > 12) cb.turns.shift()
+  renderBand(); renderTranscript()
+}
+
+const modelsEl = document.getElementById('models')
+FAMILIES.forEach((f, i) => {
+  const b = document.createElement('button')
+  b.innerHTML = `<span class="sw" style="background:${f.color || '#b6bcc8'}"></span>${f.name}`
+  b.setAttribute('aria-pressed', i === 0)
+  b.onclick = () => {
+    cb.model = f
+    modelsEl.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b))
+    renderBand()
+  }
+  modelsEl.appendChild(b)
+})
+document.querySelectorAll('[data-turn]').forEach((b) => (b.onclick = () => runTurn(b.dataset.turn === 'compact' ? 'compact' : +b.dataset.turn)))
+document.getElementById('toggleBar').onclick = () => { cb.shown = !cb.shown; renderBand(); renderTranscript() }
+
+cb.turns.push({ prompt: 'why does login fail after a token refresh?', answer: 'The refresh path in src/auth.py drops the session id; fix below.', word: 'Baked', secs: 42, delta: 2000, now: used(), out: 1300, session: 16000, cache: 99 })
+
+// ---------- lens ----------
+const CWD = '/Users/kkwok/proj'
+const KINDS = {
+  look: { color: '#4f8bf0', label: 'read/search' }, change: { color: '#e3b341', label: 'edit' }, run: { color: '#8b7cf6', label: 'shell' },
+  web: { color: '#6bbfc6', label: 'web' }, spawn: { color: '#f472b6', label: 'agent' }, other: { color: '#9ca3af', label: 'other' },
+}
+const STATUS = { running: ['●', '#4f8bf0'], completed: ['✔', '#5fb878'], failed: ['✖', '#e5534b'], pending: ['○', '#9ca3af'] }
+function kindOf(tool) {
+  if (['Read', 'Grep', 'Glob'].includes(tool)) return 'look'
+  if (['Edit', 'Write'].includes(tool)) return 'change'
+  if (tool === 'Bash') return 'run'
+  if (/^Web/.test(tool)) return 'web'
+  if (tool === 'Agent') return 'spawn'
+  return 'other'
+}
+function shortPath(p) {
+  let out = p
+  if (out.startsWith(CWD + '/')) out = out.slice(CWD.length + 1)
+  return out.replace(/^\/Users\/[^/]+/, '~')
+}
+function shortArg(p) {
+  if (p === CWD) return '.'
+  const parts = shortPath(p).split('/')
+  return parts.length > 4 ? '…/' + parts.slice(-2).join('/') : parts.join('/')
+}
+// The same shortening lens draws commands with
+function shortCommand(cmd) {
+  const lines = String(cmd).trim().split('\n')
+  let text = lines[0].trim(), dir = ''
+  for (let m; (m = text.match(/^cd\s+("[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/)); text = text.slice(m[0].length)) dir = m[1].replace(/^["']|["']$/g, '')
+  text = text.replace(/(^|[\s='"(])(\/[^\s'"|;&)]+)/g, (_, lead, p) => lead + shortArg(p))
+  if (dir && dir !== CWD) text = shortArg(dir) + ': ' + text
+  return text + (lines.length > 1 ? ' …' : '')
+}
+
+let NOW = Date.now()
+const T0 = NOW
+const P = (f) => CWD + '/' + f
+// [ago seconds, agent, tool, target, status, description, error]
+const CALLS = [
+  [175, 0, 'Bash', 'git status --short'], [170, 0, 'Read', P('src/auth.py')], [160, 0, 'Grep', 'login'],
+  [150, 0, 'Read', P('src/session.py')], [140, 0, 'Bash', 'ruff check src'], [120, 0, 'Edit', P('src/auth.py')],
+  [110, 0, 'Bash', 'cd /Users/kkwok/proj && python -m pytest /Users/kkwok/proj/tests/test_auth.py -q', 'failed', 'Run the auth tests', 'exit 1: 2 failed'],
+  [95, 0, 'Edit', P('src/auth.py')], [90, 0, 'Write', P('tests/test_auth.py')],
+  [80, 0, 'Bash', 'cd /Users/kkwok/proj && python -m pytest /Users/kkwok/proj/tests/test_auth.py -q', 'ok', 'Run the auth tests again'],
+  [70, 1, 'Grep', 'TODO'], [65, 0, 'Bash', 'pytest tests/unit -q', 'ok', 'Run the unit tests'], [60, 1, 'Read', P('README.md')],
+  [55, 0, 'Edit', P('src/api/routes/users.py')], [50, 0, 'Write', P('tests/unit/test_users.py')], [45, 0, 'Read', P('src/api/routes/orders.py')],
+  [40, 0, 'WebFetch', 'https://example.com/oauth/flows'], [35, 0, 'Bash', 'ruff check src'], [25, 0, 'Edit', P('src/session.py')],
+  [20, 1, 'Edit', P('src/api/models.py')],
+  [12, 0, 'Bash', "cd /Users/kkwok/proj/web && npm run build 2>&1 | tail -5\n# then check the bundle size", 'ok', 'Build the web app'],
+  [3, 0, 'Edit', P('src/auth.py'), 'running'],
+].map(([a, agent, tool, target, status = 'ok', desc, error]) => ({ t: T0 - a * 1000, agent: !!agent, tool, target, status, desc, error, kind: kindOf(tool) }))
+const TURN_AT = T0 - 30000
+
+const PLAN = [['Map the auth flow', 'completed'], ['Write parser tests', 'completed'], ['Reviewing the diff', 'in_progress'], ['Fix flagged issues', 'pending'], ['Update the README', 'pending']]
+const agent = (id, description, type, status, parent, agoS, took, last, tokens, calls) => ({
+  id, description, type, status, parent, start: T0 - agoS * 1000, end: took === null ? null : T0 - agoS * 1000 + took * 1000, last, tokens,
+  events: calls.map(([s, tool]) => ({ t: T0 - agoS * 1000 + s * 1000, kind: kindOf(tool) })),
+})
+const AGENTS = [
+  agent('1', 'map auth flow', 'Explore', 'completed', null, 95, 25, 'Read ~/proj/src/session.py', 4100, [[1, 'Grep'], [4, 'Read'], [9, 'Read'], [14, 'WebFetch'], [19, 'Read']]),
+  agent('2', 'write parser tests', 'general-purpose', 'completed', null, 90, 82, 'Bash pytest tests/test_parser.py -q', 9600, [[1, 'Read'], [6, 'Read'], [14, 'Write'], [20, 'Edit'], [27, 'Bash'], [36, 'Edit'], [44, 'Bash'], [52, 'Edit'], [60, 'Bash']]),
+  agent('3', 'find fixtures', 'Explore', 'failed', '2', 62, 22, 'Grep fixture', 1400, [[1, 'Glob'], [5, 'Grep']]),
+  agent('4', 'review the diff', 'code-reviewer', 'running', null, 30, null, 'Grep TODO', 6700, [[1, 'Bash'], [8, 'Read'], [15, 'Read'], [24, 'Grep']]),
+]
+const ATTACH = [
+  [172, 'instructions', 'engine', 'Contents of /Users/kkwok/proj/CLAUDE.md (project instructions): Use pytest. Keep functions short.'],
+  [171, 'skill_listing', 'engine', 'The following skills are available for use with the Skill tool: code-review, simplify, loop, schedule'],
+  [125, 'edited_text_file', 'engine', 'Note: /Users/kkwok/proj/src/auth.py was modified, either by the user or by a linter.'],
+  [100, 'todo_reminder', 'engine', 'The TodoWrite tool has not been used recently. Consider using it to track progress.'],
+  [75, 'nested_memory', 'engine', 'Contents of /Users/kkwok/proj/src/CLAUDE.md: Auth code lives here; never log tokens.'],
+  [40, 'todo_reminder', 'engine', 'The TodoWrite tool has not been used recently. Consider using it to track progress.'],
+  [30, 'context', 'hook SessionStart', 'Branch: feature/auth-fix. 3 uncommitted files. Last commit: "wip oauth".'],
+  [8, 'edited_text_file', 'engine', 'Note: /Users/kkwok/proj/src/session.py was modified, either by the user or by a linter.'],
+]
+
+const ui = { tab: 'activity', reads: false, more: {}, open: {} }
+const TABS = [['activity', 'Activity'], ['roster', 'Agents'], ['context', 'Context']]
+
+function renderTabs() {
+  document.getElementById('tabs').innerHTML = TABS.map(([id, label], i) =>
+    `<button role="tab" aria-selected="${ui.tab === id}" data-tab="${id}">${i + 1}: ${label}</button>`).join('')
+}
+const sec = (title, right, body) => `<div class="sec"><div class="row"><span class="title">${esc(title)}</span><span class="dim">${right}</span></div>${body}</div>`
+const moreBtn = (key, total, rows) => total <= rows ? '' :
+  `<div class="dim clickable" data-more="${key}">  ${ui.more[key] ? '▴ show less' : '▸ ' + (total - rows) + ' more'}</div>`
+const limit = (key, rows) => (ui.more[key] ? 100 : rows)
+
+function activity() {
+  // Files: one entry per path, edits counted, the last turn's marked
+  const files = new Map()
+  for (const call of CALLS) {
+    if (call.kind !== 'change' && call.tool !== 'Read') continue
+    const p = shortPath(call.target)
+    const f = files.get(p) ?? { path: p, edits: 0, last: 0, turn: false, sub: false }
+    if (call.kind === 'change') { f.edits++; if (call.t >= TURN_AT) f.turn = true; if (call.agent) f.sub = true }
+    f.last = Math.max(f.last, call.t)
+    files.set(p, f)
+  }
+  const all = [...files.values()]
+  const changed = all.filter((f) => f.edits)
+  const shown = ui.reads ? all : changed
+  // Lay the paths out as a tree
+  const root = {}
+  for (const f of shown) {
+    let node = root
+    const parts = f.path.split('/')
+    parts.forEach((part, i) => { node[part] ??= i === parts.length - 1 ? { __file: f } : {}; node = node[part] })
+  }
+  const rows = []
+  const walk = (node, prefix) => {
+    const keys = Object.keys(node).sort((a, b) => (!!node[a].__file - !!node[b].__file) || a.localeCompare(b))
+    keys.forEach((k, i) => {
+      const lastKid = i === keys.length - 1
+      const branch = prefix + (lastKid ? '└─ ' : '├─ ')
+      const f = node[k].__file
+      if (!f) { rows.push(`<div>${d(branch)}${esc(k)}/</div>`); walk(node[k], prefix + (lastKid ? '   ' : '│  ')); return }
+      const icon = f.edits ? c(AMBER, '✎') : d('·')
+      const name = f.edits ? esc(k) : d(k)
+      const mark = f.turn ? ' ' + c(BLUE, '●') : ''
+      const right = f.edits ? '×' + f.edits + (f.sub ? ' ↳' : '') + ' · ' + (f.turn ? c(BLUE, 'last turn') : ago(NOW - f.last)) : 'read'
+      rows.push(`<div class="row"><span>${d(branch)}${icon} ${name}${mark}</span><span class="dim">${right}</span></div>`)
+    })
+  }
+  walk(root, '')
+  const turnCount = changed.filter((f) => f.turn).length
+  const filesHead = `<div class="row"><span><span class="title">◆ files changed</span> ${d(changed.length + ' · ' + (all.length - changed.length) + ' read')}${c(BLUE, ' · ● ' + turnCount + ' last turn')}</span>`
+    + `<span class="dim clickable" data-reads>r: ${ui.reads ? 'hide' : 'show'} reads</span></div>`
+
+  const cmds = CALLS.filter((x) => x.tool === 'Bash').reverse()
+  const failed = cmds.filter((x) => x.status === 'failed').length
+  const cmdRows = cmds.slice(0, limit('cmd', 5)).map((x) => {
+    const [dot, color] = x.status === 'failed' ? ['✖', RED] : x.status === 'running' ? ['●', BLUE] : ['✔', OK]
+    const short = shortCommand(x.target)
+    return `<div data-tip="${esc(x.target.split('\n')[0])}">${c(color, dot)} ${esc(x.desc || short)}`
+      + (x.desc ? `<div class="dim">  ${esc(short)}</div>` : '') + (x.status === 'failed' && x.error ? `<div class="dim">    ${esc(x.error)}</div>` : '') + '</div>'
+  }).join('') + moreBtn('cmd', cmds.length, 5)
+
+  const recent = [...CALLS].reverse()
+  const feed = recent.slice(0, limit('feed', 6)).map((x) => {
+    const what = x.kind === 'run' ? shortCommand(x.target) : shortPath(x.target)
+    return `<div class="row"><span>${c(KINDS[x.kind].color, '█')} <b>${x.tool}</b> ${d(what)}</span><span class="${x.status === 'failed' ? '' : 'dim'}" style="${x.status === 'failed' ? 'color:' + RED : ''}">${(x.agent ? '↳ ' : '') + (x.status === 'running' ? 'now' : ago(NOW - x.t))}</span></div>`
+  }).join('') + moreBtn('feed', recent.length, 6)
+
+  return `<div class="sec">${filesHead}${rows.join('')}</div>`
+    + sec('◆ commands', cmds.length + (failed ? ' · ' + failed + ' failed' : ''), cmdRows)
+    + sec('◆ recent activity', CALLS.length + ' calls', feed)
+}
+
+function roster() {
+  const done = PLAN.filter(([, s]) => s === 'completed').length
+  const plan = PLAN.map(([text, s]) => s === 'completed' ? `<div>${c(OK, '✔')} ${d(text)}</div>`
+    : s === 'in_progress' ? `<div>${c(BLUE, '▶')} <b>${esc(text)}</b></div>` : `<div>${d('○ ' + text)}</div>`).join('')
+  const count = (s) => AGENTS.filter((a) => a.status === s).length
+  const tokens = AGENTS.reduce((s, a) => s + a.tokens, 0)
+  const rows = AGENTS.map((a) => {
+    const [dot, color] = STATUS[a.status]
+    const pad = a.parent ? '  ' : ''
+    const runtime = clock((a.end ?? NOW) - a.start)
+    return `<div class="sec"><div class="row"><span>${pad}${c(color, dot)} <b>${esc(a.description)}</b> ${d(a.type)}</span><span class="dim">${runtime} · ${fmt(a.tokens)} tok</span></div>`
+      + `<div class="dim">${pad}  ${esc(a.last)} · ${a.events.length} tools</div></div>`
+  }).join('')
+  // Timeline: one lane per agent, a block per tool call colored by kind, dots while it thinks
+  const start = Math.min(...AGENTS.map((a) => a.start))
+  const COLS = 44
+  const span = NOW - start
+  const lanes = AGENTS.map((a) => {
+    const [dot, color] = STATUS[a.status]
+    let cells = ''
+    for (let i = 0; i < COLS; i++) {
+      const t = start + (i + 0.5) * (span / COLS)
+      const end = a.end ?? NOW
+      if (t < a.start || t > end) { cells += ' '; continue }
+      const evs = a.events
+      let hit = null
+      for (let j = evs.length - 1; j >= 0; j--) if (evs[j].t <= t) { const next = evs[j + 1]?.t ?? Infinity; if (t < Math.min(evs[j].t + 4000, next)) hit = evs[j]; break }
+      cells += hit ? `<span style="color:${KINDS[hit.kind].color}" data-tip="${KINDS[hit.kind].label}">█</span>` : '<span class="faint">·</span>'
+    }
+    const label = (a.description.length > 13 ? a.description.slice(0, 12) + '…' : a.description).padEnd(13)
+    return `<div class="lane">${c(color, dot)} ${esc(label)} <span class="cells">${cells}</span></div>`
+  }).join('')
+  const axis = `<div class="dim">${' '.repeat(17)}00:00${' '.repeat(Math.max(1, COLS - 10))}${clock(span)}</div>`
+  const legend = '<div>' + Object.values(KINDS).map((k) => `${c(k.color, '█')} ${d(k.label)}`).join('  ') + '  ' + d('· thinking') + '</div>'
+  return sec('◆ plan', done + ' of ' + PLAN.length, plan)
+    + sec('◆ agents', `${count('running')} running · ${count('completed')} done · ${count('failed')} failed · ${fmt(tokens)} tok`, '<div style="height:4px"></div>' + rows)
+    + sec('◆ timeline', '', `<div style="overflow-x:auto">${lanes}${axis}</div>${legend}`)
+}
+
+function context() {
+  const thisTurn = ATTACH.length - 3
+  const groups = new Map()
+  ATTACH.forEach(([a, type, origin, text], i) => {
+    const key = type + '|' + origin
+    const g = groups.get(key) ?? { type, origin, n: 0, text, latest: 0, turn: false }
+    g.n++; g.text = text; g.latest = Math.max(g.latest, T0 - a * 1000); if (i >= thisTurn) g.turn = true
+    groups.set(key, g)
+  })
+  const list = [...groups.values()].sort((a, b) => b.latest - a.latest).map((g) => {
+    const open = ui.open[g.type + g.origin]
+    const tag = g.origin.startsWith('hook') ? c(AMBER, g.origin) : d(g.origin)
+    return `<div class="clickable" data-open="${esc(g.type + g.origin)}">${open ? '▾' : '▸'} <b>${esc(g.type)}</b> ${d('×' + g.n)} ${tag}${g.turn ? ' ' + c(BLUE, '●') : ''}</div>`
+      + `<div class="dim" style="${open ? 'padding-left:2ch' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4ch'}">${esc(g.text)}</div>`
+  }).join('')
+  const mem = `<div class="row"><span>AutoMem ${d('~/.claude/projects/proj/memory/MEMORY.md')}</span><span class="dim">262</span></div>`
+    + `<div class="row"><span>Project ${d('CLAUDE.md')}</span><span class="dim">410</span></div>`
+  const mcp = `<div class="row"><span>claude_ai_Docs</span><span class="dim">3 of 12 loaded</span></div><div class="row"><span>claude-in-chrome</span><span class="dim">0 of 21 loaded</span></div>`
+  return sec('◆ added to the prompt', c(BLUE, '● 3 this turn'), list)
+    + sec('◆ memory files', '2 · 672 tok', mem)
+    + sec('◆ mcp tools', '33 across 2 servers', mcp)
+    + sec('◆ skills', '47 of 47 listed · 8.3k tok', '')
+}
+
+function renderLens() {
+  renderTabs()
+  document.getElementById('pane').innerHTML = ui.tab === 'activity' ? activity() : ui.tab === 'roster' ? roster() : context()
+}
+
+document.querySelector('.lens').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-tab],[data-more],[data-reads],[data-open]')
+  if (!t) return
+  if (t.dataset.tab) ui.tab = t.dataset.tab
+  else if (t.dataset.more) ui.more[t.dataset.more] = !ui.more[t.dataset.more]
+  else if ('reads' in t.dataset) ui.reads = !ui.reads
+  else if (t.dataset.open) ui.open[t.dataset.open] = !ui.open[t.dataset.open]
+  renderLens()
+})
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || /input|textarea/i.test(e.target.tagName)) return
+  const i = ['1', '2', '3'].indexOf(e.key)
+  if (i >= 0) { ui.tab = TABS[i][0]; renderLens() }
+  else if (e.key === 'r' && ui.tab === 'activity') { ui.reads = !ui.reads; renderLens() }
+})
+
+// The running agent keeps working: time moves, and every few seconds it calls another tool
+const CYCLE = ['Read', 'Grep', 'Read', 'Bash', 'Read', 'Edit']
+let tick = 0
+setInterval(() => {
+  NOW += 1000
+  tick++
+  const live = AGENTS.find((a) => a.status === 'running')
+  if (live && tick % 5 === 0) {
+    const tool = CYCLE[(tick / 5) % CYCLE.length]
+    live.events.push({ t: NOW, kind: kindOf(tool) })
+    live.tokens += 300 + Math.round(Math.random() * 500)
+    live.last = tool + (tool === 'Bash' ? ' git diff --stat' : tool === 'Grep' ? ' FIXME' : tool === 'Edit' ? ' ~/proj/src/auth.py' : ' ~/proj/src/api/models.py')
+  }
+  renderLens()
+}, 1000)
+
+renderBand(); renderTranscript(); renderLens()
+</script>
+</body>
+</html>

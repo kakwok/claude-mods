@@ -1,146 +1,32 @@
 # claude-mods
 
-My [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview).
-Each directory is a complete plugin. Needs Claude Code v2.1.287 or later.
+Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). Needs Claude Code v2.1.287 or later.
+
+**[▶ Try the interactive demo](https://kakwok.github.io/claude-mods/)** to see both in color, with sample data.
 
 ## Mods
 
-| Mod | What it does |
-|---|---|
-| [`context-bar`](context-bar) | Band above the prompt: context window stacked by category (like `/context`), current model (the name and the band's frame share a color per model family: Opus violet, Sonnet green, Haiku blue, Fable pink, so a session on an unexpected model stands out), and 5h and weekly plan usage with reset countdowns. After each turn, a line under the turn's duration (`✻ Baked for 42s`) says what the turn added to the context, colored by size (blue, amber from 5k, red from 20k), with output tokens and cache hit rate. Shown by default; `/context-bar` hides or shows both. |
-| [`lens`](lens) | One pane for the session, tabs switched with `1`–`3`. **Activity**: changed files as a tree, with the files changed since your latest prompt marked `● last turn`, commands (pass/fail, Claude's description of each with the shortened command below it) and recent tool calls; each list's `▸ n more` expands it and `▴ show less` folds it. **Agents**: plan checklist, subagents with status, runtime and tokens, and under them a timeline with a lane per agent colored by what it was doing; it opens by itself when agents start and folds into a one-line band when they finish. **Context**: what Claude Code added to the prompt (reminders, notes, hook output, tagged by who added it), memory files (CLAUDE.md included), MCP and skill lists. `/lens` toggles it; `/lens activity\|agents\|context` opens a tab; `/lens demo` shows sample data. Everything stays in memory. Where an organization's managed plugin keeps `prompt.attachment` from installed plugins (you see "its prompt.attachment hook was skipped"), press `a: turn off` on the Context tab (or turn off **Show what Claude Code adds to the prompt** for `lens` in `/config`); the setting is kept per profile, and changing it reloads Lens, which clears what the pane had recorded. |
+### [context-bar](context-bar)
 
-## Screens
+A band above the prompt.
 
-Plain-text renders of each mod's demo data (`/lens demo`, and a sample reading for the context bar).
-The real panes use color: the context bar's frame and model name take the model family's color, in the bar below each category gets its own color, the `▲ +2k` after each turn is blue, amber or red by size, and in the timeline `█▓▒░` stand
-for read/search, edit, shell and web.
+- How full the context window is, by category (like `/context`).
+- Your 5-hour and weekly plan usage, with reset times.
+- The model, with the band's frame in that model family's color, so a wrong model stands out.
+- After each turn, how much context the turn added: blue, amber from 5k, red from 20k.
 
-### context-bar
+`/context-bar` hides or shows it.
 
-```text
-╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ ◆ context · claude-opus-5-5          187k of 1M · 19%  │  5h ███ ░░░ 42% ⏱ 2h05m  ·  wk █████ ░ 78% ⏱ 3d4h │
-│ ███████████████████████▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │
-│ ■ messages 141k 14%  ■ tools 14k 1%  ■ system prompt 9.8k 1%  ■ skills 8.3k 1%  ■ mcp tools 6.4k 1%        │
-│ ■ memory files 3.6k 0%  ■ agents 2.1k 0%  ■ mcp instructions 1.9k 0%  ■ autocompact buffer 45k 5%          │
-│ ■ free 768k                                                                                                │
-╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+### [lens](lens)
 
-After each turn, under its duration line in the transcript:
+A pane beside the chat with three tabs (keys `1`–`3`):
 
-```text
-✻ Baked for 42s
-  ▲ +2k context last turn → 187k · out 1.3k · session 16k · cache 99%
-```
+- **Activity**: files changed (the last turn's marked `●`), commands with pass/fail, recent tool calls.
+- **Agents**: the plan checklist, subagents, and a timeline of what each one did.
+- **Context**: what Claude Code added to the prompt, memory files, MCP servers and skills.
 
-### lens
-
-**Activity** (`1`): changed files as a tree (`●` marks the ones changed since your latest prompt), commands and recent tool calls. A command shows Claude's description of it, with the command itself on the line below, dimmed and shortened (recent activity shows the shortened command): first line only, a leading `cd` folded into a `dir:` prefix, paths relative to the project and deep paths cut to `…/<last two parts>`. Press `▸ n more` to expand a list, `▴ show less` to fold it.
-
-```text
-1: Activity   2: Agents   3: Context
-
-◆ files changed  6 · 4 read · ● 3 last turn    r: show reads
-├─ src/
-│  ├─ api/
-│  │  ├─ routes/
-│  │  │  └─ ✎ users.py                          ×1 · 55s ago
-│  │  └─ ✎ models.py ●                      ×1 ↳ · last turn
-│  ├─ ✎ auth.py ●                             ×3 · last turn
-│  └─ ✎ session.py ●                          ×1 · last turn
-└─ tests/
-   ├─ unit/
-   │  └─ ✎ test_users.py                        ×1 · 50s ago
-   └─ ✎ test_auth.py                             ×1 · 1m ago
-
-◆ commands                                      7 · 1 failed
-✔ Build the web app
-  web: npm run build 2>&1 | tail -5
-✔ ruff check src
-✔ pytest tests/unit -q
-✔ pytest tests/test_auth.py -q
-✖ pytest tests/test_auth.py -q
-    exit 1: 2 failed
-  ▸ 2 more
-
-◆ recent activity                                   22 calls
-▓ Edit src/auth.py                                    3s ago
-▒ Bash web: npm run build 2>&1 | tail -5             12s ago
-▓ Edit src/api/models.py                           ↳ 20s ago
-▓ Edit src/session.py                                25s ago
-▒ Bash ruff check src                                35s ago
-░ WebFetch https://example.com/oauth/flows           40s ago
-  ▸ 16 more
-```
-
-**Agents** (`2`): plan checklist, subagents with status, runtime and tokens, and a timeline with a lane per agent, colored by what it was doing.
-
-```text
-1: Activity   2: Agents   3: Context
-
-◆ plan                                                2 of 5
-✔ Map the auth flow
-✔ Write parser tests
-▶ Reviewing the diff
-○ Fix flagged issues
-○ Update the README
-
-◆ agents             1 running · 2 done · 1 failed · 22k tok
-
-✔ map auth flow Explore                     00:25 · 4.1k tok
-  Read ~/proj/src/session.py · 5 tools
-
-✔ write parser tests general-purpose        01:22 · 9.6k tok
-  Bash pytest tests/test_parser.py -q · 9 tools
-
-  ✖ find fixtures Explore                     00:22 · 1.4k …
-    Grep fixture · 2 tools
-
-● review the diff code-reviewer             00:32 · 6.7k tok
-  Grep TODO · 4 tools
-
-◆ timeline
-✔ map auth flow  ██████░░███·
-✔ write parser…    █████·▓▓▓▓▓·▒▒··▓▓·▒▒▒·▓▓▓▒▒▒········
-✖  find fixtur…                ·████······
-● review the d…                              ·▒▒▒██████·███·
-                 00:00                                 01:37
-
-█ read/search  ▓ edit  ▒ shell  ░ web  ◆ agent  ▪ other
-· thinking
-```
-
-**Context** (`3`): what Claude Code added to the prompt, memory files, MCP and skills.
-
-```text
-1: Activity   2: Agents   3: Context
-
-◆ added to the prompt                                3 this turn
-▸ edited_text_file ×2 engine
-    Note: /Users/kkwok/proj/src/session.py was modified, either…
-▸ context ×1 hook SessionStart
-    Branch: feature/auth-fix. 3 uncommitted files. Last commit:…
-▸ todo_reminder ×2 engine
-    The TodoWrite tool has not been used recently. Consider usi…
-▸ nested_memory ×1 engine
-    Contents of /Users/kkwok/proj/src/CLAUDE.md: Auth code live…
-▸ skill_listing ×1 engine
-    The following skills are available for use with the Skill t…
-▸ instructions ×1 engine
-    Contents of /Users/kkwok/proj/CLAUDE.md (project instructio…
-
-◆ memory files                                       2 · 672 tok
-AutoMem ~/.claude/projects/proj/memory/MEMORY.md 262
-Project CLAUDE.md 410
-
-◆ mcp tools                                  33 across 2 servers
-claude_ai_Docs                                    3 of 12 loaded
-claude-in-chrome                                  0 of 21 loaded
-
-◆ skills                              47 of 47 listed · 8.3k tok
-```
+`/lens` opens or closes it, and `/lens demo` fills it with sample data. If an organization plugin
+blocks the Context tab, turn off **Show what Claude Code adds to the prompt** for lens in `/config`.
 
 ## Install
 
