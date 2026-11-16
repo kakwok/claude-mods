@@ -176,6 +176,13 @@ export function register(on) {
     })
   })
 
+  // /model changes the model and its window, so refresh the readings as it runs (not on /config or the picker, which the mod cannot see)
+  on('command.run', { command: 'model' }, async ($, e, next) => {
+    const result = await next(e)
+    if (visible) await refresh($)
+    return result
+  })
+
   on('command.run', { command: 'context-bar' }, async ($) => {
     visible = !visible
     if (visible) await refresh($)
@@ -273,7 +280,9 @@ export function register(on) {
     // On a very narrow terminal the plan limits are the first thing to go
     const showLimits = limits.length > 0 && e.props.bodyColumns >= 80
 
-    const modelColor = familyColor(breakdown.model)
+    // The model is read live, so a /model switch shows at once rather than after the next turn
+    const model = (await $.session.model()) || breakdown.model
+    const modelColor = familyColor(model)
     const header = Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -284,7 +293,7 @@ export function register(on) {
           children: [
             Text({ bold: true, color: ACCENT, children: ['◆ context'] }),
             Text({ dimColor: true, children: ['·'] }),
-            Text({ bold: Boolean(modelColor), color: modelColor, children: [breakdown.model] }),
+            Text({ bold: Boolean(modelColor), color: modelColor, children: [model] }),
           ],
         }),
         Box({

@@ -28,6 +28,7 @@ for (const [label, grow, color] of [['small', 1100, '#4f8bf0'], ['medium', 7000,
     mock.clock(on)
     on('session.start', () => ({ cwd: '/tmp' }))
     on('command.register', () => ({ value: undefined }))
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
     on('session.usage', usage)
     on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
     on('ui.render', () => ({ type: 'Text', props: {}, children: ['✻ Baked for 3s'] }))
@@ -52,6 +53,7 @@ for (const [model, color] of [['claude-opus-5-5', '#a78bfa'], ['claude-sonnet-5-
     mock.clock(on)
     on('session.start', () => ({ cwd: '/tmp' }))
     on('command.register', () => ({ value: undefined }))
+    on('session.model', () => ({ value: model }))
     on('session.usage', () => {
       const u = usage()
       return { value: { ...u.value, context: { ...u.value.context, breakdown: { ...u.value.context.breakdown, model } } } }
@@ -65,3 +67,17 @@ for (const [model, color] of [['claude-opus-5-5', '#a78bfa'], ['claude-sonnet-5-
     if (name?.props.color !== color || frame?.props.borderColor !== color) throw new Error('expected ' + color)
   })
 }
+
+test('the header shows the session model at once, not the one from the last reading', async ($, on) => {
+  mock.clock(on)
+  on('session.start', () => ({ cwd: '/tmp' }))
+  on('command.register', () => ({ value: undefined }))
+  on('session.usage', usage)
+  on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
+  on('ui.render', () => ({ type: 'Text', props: {}, children: [''] }))
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/tmp' })
+  const band = await $.ui.mount({ plugin: 'context-bar', component: 'AbovePrompt', requestId: 'band', surface: 'terminal', viewport: { columns: 140, rows: 40 }, props: { bodyColumns: 120, hasSurvey: false } } as any)
+  const name = (await band.find({ type: 'Text', text: 'claude-sonnet-5-5' })) as any
+  if (!name) throw new Error('the header still shows the old model')
+  if (name.props.color !== '#4ade80') throw new Error('expected the Sonnet green, got ' + name.props.color)
+})
