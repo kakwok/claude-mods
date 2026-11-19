@@ -10,7 +10,8 @@ Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). N
 
 A band above the prompt.
 
-- How full the context window is, by category (like `/context`).
+- How full the context window is, by category (like `/context`). Messages is opened up by source: `explore` (Read, Grep, Glob), `actions` (shell, edits, subagent and other tool calls), `replies` and `prompts`, kept together on one row. The split is an estimate, scaled to add up to the real Messages total, and starts over after `/compact` or `/clear`.
+- Categories under 3% of the context window fold into `other`, so the legend stays readable. Messages and its parts, `compact` (the autocompact buffer) and free space always show.
 - Your 5-hour and weekly plan usage, with reset times.
 - The model, with the band's frame in that model family's color, so a wrong model stands out.
 - After each turn, how much context the turn added: blue, amber from 5k, red from 20k.
@@ -22,7 +23,7 @@ A band above the prompt.
 A pane beside the chat with three tabs (keys `1`–`3`):
 
 - **Activity**: files changed (the last turn's marked `●`), commands with pass/fail, recent tool calls.
-- **Agents**: the plan checklist, subagents, and a timeline of what each one did.
+- **Agents**: the plan checklist, how many tokens subagents spent outside your context (by agent type, with the biggest agents named; cache reads are not counted), subagents, and a timeline of what each one did.
 - **Context**: what Claude Code added to the prompt, memory files, MCP servers and skills.
 
 `/lens` opens or closes it, and `/lens demo` fills it with sample data. If an organization plugin
@@ -92,6 +93,11 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 Run a mod's tests with `claude plugin test ~/mods/lens`.
 
 ## Releases
+
+**v0.2.0**:
+
+- `context-bar`: Messages split by source (explore, actions, replies, prompts) as one grouped row; rows under 3% of the window fold into `other`; the autocompact buffer is labeled `compact`.
+- `lens`: the Agents tab shows tokens spent outside your context, by subagent type, with the top agents.
 
 **v0.1.0**, the first release:
 

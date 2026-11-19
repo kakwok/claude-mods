@@ -72,9 +72,10 @@
   .bandhead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 16px; }
   .meter { letter-spacing: -1px; }
   .stack { display: flex; height: 12px; margin: 4px 0 5px; border-radius: 2px; overflow: hidden; }
-  .stack span { display: block; height: 100%; min-width: 3px; transition: flex-grow .4s; }
+  .stack span { display: block; height: 100%; transition: flex-grow .4s; }
   .stack span.buf { background-image: repeating-linear-gradient(135deg, #e6e9ef 0 3px, #cfd4dd 3px 6px) !important; }
   .legend { display: flex; flex-wrap: wrap; gap: 0 14px; }
+  .legend + .legend { margin-top: 1px; }
   .legend span b { font-weight: 400; }
   .prompt { border-top: 1px solid var(--term-edge); border-bottom: 1px solid var(--term-edge); padding: 3px 2px; color: var(--dim); }
 
@@ -103,7 +104,7 @@
   <div class="grid">
     <section class="panel">
       <h2><span class="tag">context-bar</span> · context, plan limits and model at a glance</h2>
-      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k.</p>
+      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k. Messages is opened up by source (an estimate), small categories elsewhere fold into <b>other</b>, and <b>/compact</b> starts the split over.</p>
       <div class="controls">
         <div class="group" id="models">model:</div>
         <div class="group">run a turn:
@@ -202,13 +203,26 @@ const cb = {
     ['memory files', 3600], ['custom agents', 2100], ['mcp server instructions', 1900],
   ],
   buffer: 45000,
+  split: { explore: 58000, replies: 36000, actions: 41000, prompts: 6000 },
   turns: [],
 }
+const MSG_COLORS = { explore: '#d97757', replies: '#e59a7d', actions: '#c9694a', prompts: '#f1bba6', earlier: '#9c6a58', summary: '#9c6a58', other: '#8a8f9c' }
+const FOLD = 0.03
 const used = () => cb.cats.reduce((s, [, t]) => s + t, 0)
 
 function meter(p) {
   const on = Math.round((p / 100) * 6)
   return c(limitColor(p), '█'.repeat(on), 'meter') + c('#e2e5eb', '█'.repeat(6 - on), 'meter')
+}
+
+// Rows under 3% of the window fold into one "other", biggest first and "other" last
+function fold(rows, window) {
+  const keep = []
+  let other = 0
+  rows.forEach((r) => (r.tokens / window < FOLD ? (other += r.tokens) : keep.push(r)))
+  keep.sort((x, y) => y.tokens - x.tokens)
+  if (other) keep.push({ name: 'other', tokens: other, color: MSG_COLORS.other })
+  return keep
 }
 
 function renderBand() {
@@ -218,19 +232,36 @@ function renderBand() {
   band.style.borderColor = color || '#c4c8d2'
   const total = used()
   const pct = Math.round((total / MAX) * 100)
-  const sorted = [...cb.cats].sort((a, b) => b[1] - a[1])
   const free = MAX - total - cb.buffer
   const head = `<div class="bandhead"><span>${c(ACCENT, '◆ context', 'bold')} ${d('·')} <span class="${color ? 'bold' : ''}" style="color:${color || 'inherit'}">${esc(cb.model.model)}</span></span>`
     + `<span><b>${fmt(total)}</b> ${d('of 1M · ' + pct + '%')}  ${d('│')}  ${d('5h')} ${meter(42)} 42% ${d('⏱ 2h05m')}  ${d('·')}  ${d('wk')} ${meter(78)} ${c(AMBER, '78%')} ${d('⏱ 3d4h')}</span></div>`
-  const seg = (name, tokens, color, cls = '') =>
-    `<span class="${cls}" style="flex-grow:${tokens};background:${color}" data-tip="${esc(name)} · ${fmt(tokens)} · ${Math.round((tokens / MAX) * 100)}%"></span>`
-  const stack = '<div class="stack">' + sorted.map(([n, t]) => seg(LABELS[n] ?? n, t, COLORS[n])).join('')
-    + seg('autocompact buffer', cb.buffer, '#e6e9ef', 'buf') + seg('free', free, '#eef0f4') + '</div>'
-  const item = (name, tokens, color, extra = true) =>
-    `<span data-tip="${esc(name)}: ${tokens.toLocaleString()} tokens">${c(color, '■')} <b>${esc(name)}</b> ${d(fmt(tokens) + (extra ? ' ' + Math.round((tokens / MAX) * 100) + '%' : ''))}</span>`
-  const legend = '<div class="legend">' + sorted.map(([n, t]) => item(LABELS[n] ?? n, t, COLORS[n])).join('')
-    + item('autocompact buffer', cb.buffer, '#b6bcc8') + item('free', free, '#b6bcc8', false) + '</div>'
-  band.innerHTML = head + stack + legend
+
+  // Other categories, then Messages opened up by source (scaled to the real Messages total), then compact and free
+  const messages = cb.cats.find(([n]) => n === 'messages')[1]
+  const base = fold(cb.cats.filter(([n]) => n !== 'messages').map(([n, t]) => ({ name: LABELS[n] ?? n, tokens: t, color: COLORS[n] })), MAX)
+  const guess = Object.entries(cb.split).filter(([, t]) => t > 0)
+  const sum = guess.reduce((n, [, t]) => n + t, 0) || 1
+  const parts = guess.map(([n, t]) => ({ name: n, tokens: (t / sum) * messages, color: MSG_COLORS[n] })).sort((x, y) => y.tokens - x.tokens)
+  const tail = [{ name: 'compact', tokens: cb.buffer, color: '#b6bcc8', buf: true }, { name: 'free', tokens: free, color: '#b6bcc8', free: true }]
+
+  // Biggest group first, "other" after them, then compact and free; Messages sorts by its total with its parts kept together
+  const groups = base.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
+  groups.push({ tokens: messages, rows: parts, isMessages: true })
+  groups.sort((x, y) => y.tokens - x.tokens)
+  const otherRow = base.find((r) => r.name === 'other')
+  if (otherRow) groups.push({ tokens: otherRow.tokens, rows: [otherRow] })
+
+  const seg = (r) =>
+    `<span class="${r.buf ? 'buf' : ''}" style="flex-grow:${r.tokens};background:${r.buf ? '#e6e9ef' : r.free ? '#eef0f4' : r.color}" data-tip="${esc(r.name)} · ${fmt(r.tokens)} · ${Math.round((r.tokens / MAX) * 100)}%"></span>`
+  const stack = '<div class="stack">' + [...groups.flatMap((g) => g.rows), ...tail].map(seg).join('') + '</div>'
+  const item = (r) =>
+    `<span data-tip="${esc(r.name)}: ${Math.round(r.tokens).toLocaleString()} tokens">${c(r.color, '■')} <b>${esc(r.name)}</b> ${d(fmt(Math.round(r.tokens)) + (r.free || r.buf ? '' : ' ' + Math.round((r.tokens / MAX) * 100) + '%'))}</span>`
+  const msgHead = `<span>${c(COLORS.messages, '■')} ${c(COLORS.messages, 'messages', 'bold')} <b>${fmt(messages)}</b> ${d(Math.round((messages / MAX) * 100) + '% ▸')}</span>`
+  let lines = '', run = []
+  const flush = () => { if (run.length) lines += '<div class="legend">' + run.map(item).join('') + '</div>'; run = [] }
+  groups.forEach((g) => { if (g.isMessages) { flush(); lines += '<div class="legend">' + msgHead + g.rows.map(item).join('') + '</div>' } else run.push(...g.rows) })
+  flush()
+  band.innerHTML = head + stack + lines + '<div class="legend">' + tail.map(item).join('') + '</div>'
 }
 
 function renderTranscript() {
@@ -247,10 +278,19 @@ function renderTranscript() {
 function runTurn(kind) {
   const before = used()
   const sizeName = kind === 'compact' ? 'compact' : kind >= 20000 ? 'large' : kind >= 5000 ? 'medium' : 'small'
-  if (kind === 'compact') cb.cats[0][1] = 18000
-  else cb.cats[0][1] += kind + Math.round(Math.random() * 400 - 200)
-  if (used() > MAX - cb.buffer - 20000) cb.cats[0][1] = 18000
   const out = kind === 'compact' ? 900 : 600 + Math.round(Math.random() * 2400)
+  const reset = () => { cb.cats[0][1] = 18000; cb.split = { summary: 18000 } }
+  if (kind === 'compact') reset()
+  else {
+    const grow = kind + Math.round(Math.random() * 400 - 200)
+    cb.cats[0][1] += grow
+    // The model's output is replies; the rest is shared out by what the turn did
+    const reply = Math.min(grow, out), rest = grow - reply
+    const mix = sizeName === 'large' ? { explore: 1 } : sizeName === 'medium' ? { actions: 1 } : { actions: 0.6, prompts: 0.4 }
+    cb.split.replies = (cb.split.replies ?? 0) + reply
+    for (const [k, w] of Object.entries(mix)) cb.split[k] = (cb.split[k] ?? 0) + rest * w
+    if (used() > MAX - cb.buffer - 20000) reset()
+  }
   cb.session += out
   const now = used()
   cb.turns.push({
@@ -354,6 +394,7 @@ const ATTACH = [
   [8, 'edited_text_file', 'engine', 'Note: /Users/kkwok/proj/src/session.py was modified, either by the user or by a linter.'],
 ]
 
+const MAIN_SPENT = 38000, CACHE_READS = 1_200_000
 const ui = { tab: 'activity', reads: false, more: {}, open: {} }
 const TABS = [['activity', 'Activity'], ['roster', 'Agents'], ['context', 'Context']]
 
@@ -461,8 +502,20 @@ function roster() {
   }).join('')
   const axis = `<div class="dim">${' '.repeat(17)}00:00${' '.repeat(Math.max(1, COLS - 10))}${clock(span)}</div>`
   const legend = '<div>' + Object.values(KINDS).map((k) => `${c(k.color, '█')} ${d(k.label)}`).join('  ') + '  ' + d('· thinking') + '</div>'
+  // Spent outside your context: subagent tokens by type, the biggest agents, and the main thread for comparison
+  const TYPE_COLORS = ['#4f8bf0', '#6bbfc6', '#9bc57a', '#e3c26b', '#e8a0bf', '#8b7cf6']
+  const types = {}
+  AGENTS.forEach((a) => { const g = (types[a.type] ??= { type: a.type, n: 0, tokens: 0 }); g.n++; g.tokens += a.tokens })
+  const groups = Object.values(types).sort((x, y) => y.tokens - x.tokens)
+  const BAR = 44
+  const spentBar = groups.map((g, i) => c(TYPE_COLORS[i % TYPE_COLORS.length], '█'.repeat(Math.max(1, Math.round((g.tokens / tokens) * BAR))))).join('')
+  const spentRows = groups.map((g, i) => `<div class="row"><span>${c(TYPE_COLORS[i % TYPE_COLORS.length], '■')} ${esc(g.type)} ${d('×' + g.n)}</span><span><b>${fmt(g.tokens)}</b> ${d(Math.round((g.tokens / tokens) * 100) + '%')}</span></div>`).join('')
+  const top = [...AGENTS].sort((x, y) => y.tokens - x.tokens).slice(0, 3)
+    .map((a) => `<div class="row dim"><span>  ${esc(a.description)} · ${a.events.length} calls</span><span>${fmt(a.tokens)}</span></div>`).join('')
+  const spent = sec('◆ spent outside your context', `${fmt(tokens)} · ${AGENTS.length} agents`,
+    `<div>${spentBar}</div>${spentRows}${top}<div class="dim">main thread ${fmt(MAIN_SPENT)} · cache reads not counted: ${fmt(CACHE_READS)}</div>`)
   return sec('◆ plan', done + ' of ' + PLAN.length, plan)
-    + sec('◆ agents', `${count('running')} running · ${count('completed')} done · ${count('failed')} failed · ${fmt(tokens)} tok`, '<div style="height:4px"></div>' + rows)
+    + sec('◆ agents', `${count('running')} running · ${count('completed')} done · ${count('failed')} failed · ${fmt(tokens)} tok`, '<div style="height:4px"></div>' + spent + '<div style="height:6px"></div>' + rows)
     + sec('◆ timeline', '', `<div style="overflow-x:auto">${lanes}${axis}</div>${legend}`)
 }
 
