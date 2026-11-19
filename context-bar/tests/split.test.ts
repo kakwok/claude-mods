@@ -6,6 +6,8 @@ let MESSAGES = 10000
 let MCP = 1700
 // When the session began; undefined leaves it unknown, which reads as "earlier"
 let STARTED: number | undefined
+// False leaves the Messages category out, as in a new session before the first message
+let HAS_MESSAGES = true
 const usage = () => ({
   value: {
     startedAt: STARTED,
@@ -23,7 +25,7 @@ const usage = () => ({
           { name: 'Skills', tokens: 8000, kind: 'used' },
           { name: 'MCP tools', tokens: MCP, kind: 'used' },
           { name: 'Memory files', tokens: 12100, kind: 'used' },
-          { name: 'Messages', tokens: MESSAGES, kind: 'used' },
+          ...(HAS_MESSAGES ? [{ name: 'Messages', tokens: MESSAGES, kind: 'used' }] : []),
           { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
           { name: 'Free space', tokens: 200000 - 40000 - MESSAGES - 33000, kind: 'free' },
         ],
@@ -79,12 +81,12 @@ test('a compacted window starts the split over, with Messages as one plain row',
   if (!(await band.find({ type: 'Text', text: 'messages' }))) throw new Error('expected a messages row after a compaction')
 })
 
-test('a folded category comes back when it grows past 3% of the window, and folds again when it shrinks', async ($, on) => {
+test('a folded category comes back when it grows past 1% of the window, and folds again when it shrinks', async ($, on) => {
   await setup($, on)
   MESSAGES = 10000
   await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
 
-  // Memory files at 12.1k is already shown; use MCP tools (1.7k, under the 6k cutoff on a 200k window) as the one that moves
+  // Memory files at 12.1k is already shown; use MCP tools (1.7k, under the 2k cutoff on a 200k window) as the one that moves
   const has = async (label: string) => Boolean(await (await mount($)).find({ type: 'Text', text: label }))
   if (await has('mcp tools')) throw new Error('mcp tools at 1.7k should be folded')
 
@@ -120,25 +122,32 @@ test('once the split has two parts, earlier shows beside them', async ($, on) =>
   }
 })
 
-// The first reading's lump, once a turn has added a second part, for a session that began ageMs ago
-async function firstLump($: any, on: any, ageMs: number) {
+// Starts a session that began ageMs ago and runs one turn, then names the parts of Messages shown.
+// Like a real session: a new one has no Messages yet when the mod first reads usage (the first message is not sent),
+// while a resumed one, or one the mod loads into late, already has some.
+async function firstTurn($: any, on: any, ageMs: number) {
   // setup's mocked clock starts at 0
   STARTED = -ageMs
-  MESSAGES = 10000
+  const isNew = ageMs < 60_000
+  HAS_MESSAGES = !isNew
+  MESSAGES = isNew ? 0 : 10000
   await setup($, on)
-  MESSAGES = 20000
+  HAS_MESSAGES = true
+  MESSAGES += 20000
   await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
   const band = await mount($)
   STARTED = undefined
-  return (await band.find({ type: 'Text', text: 'earlier' })) ? 'earlier' : (await band.find({ type: 'Text', text: 'prompts' })) ? 'prompts' : 'none'
+  const shown = []
+  for (const label of ['earlier', 'prompts', 'replies']) if (await band.find({ type: 'Text', text: label })) shown.push(label)
+  return shown.join(',')
 }
 
-test('a new session counts its first message as prompts, with no earlier', async ($, on) => {
-  const got = await firstLump($, on, 5_000)
-  if (got !== 'prompts') throw new Error('expected prompts, got ' + got)
+test('a new session splits its first turn into prompts and replies, with no earlier', async ($, on) => {
+  const got = await firstTurn($, on, 5_000)
+  if (got !== 'prompts,replies') throw new Error('expected prompts,replies, got ' + got)
 })
 
-test('a resumed session, or one the mod loads into late, calls it "earlier"', async ($, on) => {
-  const got = await firstLump($, on, 3_600_000)
-  if (got !== 'earlier') throw new Error('expected earlier, got ' + got)
+test('a resumed session, or one the mod loads into late, calls what was there "earlier"', async ($, on) => {
+  const got = await firstTurn($, on, 3_600_000)
+  if (got !== 'earlier,prompts,replies') throw new Error('expected earlier,prompts,replies, got ' + got)
 })

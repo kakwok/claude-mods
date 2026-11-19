@@ -43,7 +43,7 @@ const LABELS = {
 }
 
 // Share of the context window under which a row folds into "other". Messages, free space and the compact buffer never fold.
-const FOLD = 0.03
+const FOLD = 0.01
 
 // Messages is opened up by source: four parts, so it never needs folding. The shades stay close to the Messages color.
 const MSG_COLORS = {
@@ -170,7 +170,10 @@ async function refresh($) {
     // Nothing tracked yet (the mod just loaded, or the window was compacted): start the split from what is there now
     if (lastMessages === null) {
       if (baseName === null && Number.isFinite(usage.startedAt) && (await $.clock.now()) - usage.startedAt < NEW_MS) baseName = 'prompts'
-      track(messagesOf(breakdown), 0)
+      // A new session or a cleared window has no Messages yet: start from zero, so its first turn is split like any
+      // other instead of being lumped whole into "prompts" (a one-part split, which shows as plain messages)
+      const m = messagesOf(breakdown)
+      track(m ?? (baseName === 'prompts' && breakdown ? 0 : null), 0)
     }
   } catch {
     breakdown = null

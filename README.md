@@ -10,11 +10,30 @@ Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). N
 
 A band above the prompt.
 
-- How full the context window is, by category (like `/context`). Messages is opened up by source: `explore` (Read, Grep, Glob), `actions` (shell, edits, subagent and other tool calls), `replies` and `prompts`, kept together on one row. The split is an estimate, scaled to add up to the real Messages total, and starts over after `/compact` or `/clear`. In a new session or after `/clear`, the first message (your prompt plus the skill and tool listings, memory and git status that ride with it) counts as `prompts`. Only turns the mod never saw, in a resumed session or one it loaded into late, show as `earlier`; after `/compact` the summary shows as `summary`. Until a turn adds a second part, Messages shows as one plain row.
-- Categories under 3% of the context window fold into `other`, so the legend stays readable. Messages and its parts, `compact` (the autocompact buffer) and free space always show.
+- How full the context window is, by category (like `/context`), with Messages opened up by source (see below).
+- Categories under 1% of the context window fold into `other`, so the legend stays readable. Messages and its parts, `compact` (the autocompact buffer) and free space always show.
 - Your 5-hour and weekly plan usage, with reset times.
 - The model, with the band's frame in that model family's color, so a wrong model stands out.
 - After each turn, how much context the turn added: blue, amber from 5k, red from 20k.
+
+#### How Messages is grouped
+
+Messages is the conversation itself, usually the biggest category. The bar shows it as one block in shades of the
+Messages color, with a part per source:
+
+| Part | What it holds |
+| --- | --- |
+| `explore` | Results of reading and searching: Read, Grep, Glob, LS, NotebookRead |
+| `actions` | Results of every other tool call: shell commands, edits, subagent calls, MCP tools, web |
+| `replies` | What Claude wrote: answers and tool calls |
+| `prompts` | What you sent, with what rides along (skill and tool listings, memory, git status). In a new session or after `/clear`, the first message counts here |
+| `earlier` | Turns the mod never saw: a resumed session, or one it loaded into late |
+| `summary` | The summary left by `/compact` |
+
+The split is an estimate. After each turn the mod looks at how much Messages grew. The part up to the tokens Claude
+generated goes to `replies`. The rest is shared between `explore` and `actions` by the size of what each one's tools
+returned that turn, or goes to `prompts` if no tool ran. The parts are then scaled to add up to the real Messages total.
+`/compact` and `/clear` start the split over. Until a turn adds a second part, Messages shows as one plain row.
 
 `/context-bar` hides or shows it.
 
@@ -93,6 +112,10 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 Run a mod's tests with `claude plugin test ~/mods/lens`.
 
 ## Releases
+
+**v0.2.3**:
+
+- `context-bar`: fixes the Messages split vanishing in a new session (it read Messages before the first message existed, so the whole first turn was one `prompts` lump); categories now fold into `other` under 1% of the window instead of 3%; the README explains how Messages is grouped.
 
 **v0.2.2**:
 

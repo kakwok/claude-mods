@@ -207,7 +207,7 @@ const cb = {
   turns: [],
 }
 const MSG_COLORS = { explore: '#d97757', replies: '#e59a7d', actions: '#c9694a', prompts: '#f1bba6', earlier: '#9c6a58', summary: '#9c6a58', other: '#8a8f9c' }
-const FOLD = 0.03
+const FOLD = 0.01
 const used = () => cb.cats.reduce((s, [, t]) => s + t, 0)
 
 function meter(p) {
@@ -215,7 +215,7 @@ function meter(p) {
   return c(limitColor(p), '█'.repeat(on), 'meter') + c('#e2e5eb', '█'.repeat(6 - on), 'meter')
 }
 
-// Rows under 3% of the window fold into one "other", biggest first and "other" last
+// Rows under 1% of the window fold into one "other", biggest first and "other" last
 function fold(rows, window) {
   const keep = []
   let other = 0
