@@ -10,7 +10,7 @@ Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). N
 
 A band above the prompt.
 
-- How full the context window is, by category (like `/context`). Messages is opened up by source: `explore` (Read, Grep, Glob), `actions` (shell, edits, subagent and other tool calls), `replies` and `prompts`, kept together on one row. The split is an estimate, scaled to add up to the real Messages total, and starts over after `/compact` or `/clear`.
+- How full the context window is, by category (like `/context`). Messages is opened up by source: `explore` (Read, Grep, Glob), `actions` (shell, edits, subagent and other tool calls), `replies` and `prompts`, kept together on one row. The split is an estimate, scaled to add up to the real Messages total, and starts over after `/compact` or `/clear`. What was already in the window when the mod loaded shows as `earlier`.
 - Categories under 3% of the context window fold into `other`, so the legend stays readable. Messages and its parts, `compact` (the autocompact buffer) and free space always show.
 - Your 5-hour and weekly plan usage, with reset times.
 - The model, with the band's frame in that model family's color, so a wrong model stands out.
@@ -93,6 +93,10 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 Run a mod's tests with `claude plugin test ~/mods/lens`.
 
 ## Releases
+
+**v0.2.1**:
+
+- `context-bar`: the Messages split shows right after the mod loads or after `/compact` (the first reading is `earlier` or `summary`), not only after the next turn; `compact` and free space share the last legend line instead of taking one of their own.
 
 **v0.2.0**:
 

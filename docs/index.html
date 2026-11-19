@@ -260,8 +260,9 @@ function renderBand() {
   let lines = '', run = []
   const flush = () => { if (run.length) lines += '<div class="legend">' + run.map(item).join('') + '</div>'; run = [] }
   groups.forEach((g) => { if (g.isMessages) { flush(); lines += '<div class="legend">' + msgHead + g.rows.map(item).join('') + '</div>' } else run.push(...g.rows) })
-  flush()
-  band.innerHTML = head + stack + lines + '<div class="legend">' + tail.map(item).join('') + '</div>'
+  // Compact and free space join the last line when it is a plain one
+  if (run.length) { run.push(...tail); flush(); band.innerHTML = head + stack + lines }
+  else { flush(); band.innerHTML = head + stack + lines + '<div class="legend">' + tail.map(item).join('') + '</div>' }
 }
 
 function renderTranscript() {

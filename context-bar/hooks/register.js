@@ -162,6 +162,8 @@ async function refresh($) {
     const usage = await $.session.usage({ breakdown: 'summary' })
     breakdown = usage.context.breakdown ?? null
     rateLimits = usage.rateLimits ?? []
+    // Nothing tracked yet (the mod just loaded, or the window was compacted): start the split from what is there now
+    if (lastMessages === null) track(messagesOf(breakdown), 0)
   } catch {
     breakdown = null
     rateLimits = []
@@ -382,8 +384,14 @@ export function register(on) {
         legend.push(line('leg-msg', [messagesHead, ...g.rows.map(item)]))
       } else run.push(...g.rows)
     }
-    flush()
-    legend.push(line('leg-tail', tail.map(item)))
+    // Compact and free space join the last line when it is a plain one, instead of taking a line of their own
+    if (run.length) {
+      run.push(...tail)
+      flush()
+    } else {
+      flush()
+      legend.push(line('leg-tail', tail.map(item)))
+    }
 
     // Plan limits, like the usage page: current session (5h) and this week.
     // Wide terminals get a bar and the reset countdown; narrower ones just the percent.

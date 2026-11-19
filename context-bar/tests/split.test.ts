@@ -91,3 +91,12 @@ test('a folded category comes back when it grows past 3% of the window, and fold
   await $.turn.complete({ answer: 'x', durationMs: 1000, usage: U, reason: 'answer' } as any)
   if (await has('mcp tools')) throw new Error('mcp tools should fold again after shrinking')
 })
+
+test('a window that was already full when the mod loaded still shows a Messages split, and compact and free share the last line', async ($, on) => {
+  await setup($, on)
+  MESSAGES = 50000
+  // No turn has run: the split comes from the first reading
+  const band = await mount($)
+  if (!(await band.find({ type: 'Text', text: 'earlier' }))) throw new Error('expected an "earlier" row before any turn')
+  if (await band.find({ key: 'leg-tail' })) throw new Error('compact and free sit on a line of their own')
+})
