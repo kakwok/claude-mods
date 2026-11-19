@@ -11,7 +11,7 @@ Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). N
 A band above the prompt.
 
 - How full the context window is, by category (like `/context`), with Messages opened up by source (see below).
-- Categories under 1% of the context window fold into `other`, so the legend stays readable. Messages and its parts, `compact` (the autocompact buffer) and free space always show.
+- Every category shows in its own color, under a short name (`sys prompt`, `tools`, `skills`, `mcp`, `mcp info`, `memory`, `agents`). The legend takes up to two lines; only when it would need more at the terminal's width do the smallest categories fold into `other`, one at a time, until it fits. Messages and its parts, `compact` (the autocompact buffer) and free space never fold.
 - Your 5-hour and weekly plan usage, with reset times.
 - The model, with the band's frame in that model family's color, so a wrong model stands out.
 - After each turn, how much context the turn added: blue, amber from 5k, red from 20k.
@@ -112,6 +112,10 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 Run a mod's tests with `claude plugin test ~/mods/lens`.
 
 ## Releases
+
+**v0.2.4**:
+
+- `context-bar`: every category keeps its own color under a short name (`sys prompt`, `tools`, `mcp`, `mcp info`, `memory`, `agents`); instead of folding under a share of the window, the smallest categories fold into `other` only when the legend would need more than two lines at the terminal's width; token counts under 1k no longer show float noise (`251.99999999999997`).
 
 **v0.2.3**:
 

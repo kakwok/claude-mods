@@ -35,15 +35,21 @@ function familyColor(model) {
   return undefined
 }
 
-// Shorter legend labels than /context prints
+// Short legend labels, so every category fits without folding
 const LABELS = {
+  'system prompt': 'sys prompt',
   'system tools': 'tools',
+  'mcp tools': 'mcp',
+  'mcp server instructions': 'mcp info',
   'custom agents': 'agents',
-  'mcp server instructions': 'mcp instructions',
+  'memory files': 'memory',
 }
 
-// Share of the context window under which a row folds into "other". Messages, free space and the compact buffer never fold.
-const FOLD = 0.01
+// Lines the legend may take. Every category shows; only when the legend would need more lines than this at the
+// terminal's width do the smallest fold into "other". Messages and its parts, free space and the compact buffer never fold.
+const LEGEND_LINES = 2
+// Spaces between legend entries
+const GAP = 2
 
 // Messages is opened up by source: four parts, so it never needs folding. The shades stay close to the Messages color.
 const MSG_COLORS = {
@@ -105,17 +111,25 @@ function track(total, out) {
   lastMessages = total
 }
 
-// Fold rows under the cutoff into one "other", biggest first with "other" last
-function fold(rows, window) {
-  const keep = []
-  let other = 0
-  for (const r of rows) {
-    if (r.tokens / window < FOLD) other += r.tokens
-    else keep.push(r)
+// Show the biggest `keep` rows and fold the rest into one "other", which goes last
+function foldTo(sorted, keep) {
+  const rest = sorted.slice(keep).reduce((n, r) => n + r.tokens, 0)
+  return rest > 0 ? [...sorted.slice(0, keep), { name: 'other', tokens: rest }] : sorted.slice(0, keep)
+}
+
+// Lines a wrapping row of entries this wide takes in `width` columns
+function linesFor(widths, width) {
+  let lines = 1
+  let x = -1
+  for (const w of widths) {
+    if (x < 0) x = w
+    else if (x + GAP + w <= width) x += GAP + w
+    else {
+      lines++
+      x = w
+    }
   }
-  keep.sort((a, b) => b.tokens - a.tokens)
-  if (other > 0) keep.push({ name: 'other', tokens: other })
-  return keep
+  return lines
 }
 
 // Latest readings, and whether the band is shown
@@ -146,7 +160,7 @@ function fmt(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M'
   if (n >= 1e4) return Math.round(n / 1e3) + 'k'
   if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
-  return String(n)
+  return String(Math.round(n))
 }
 
 // 7500000 ms -> "2h05m", 1800000 -> "30m", 200000000 -> "2d7h"
@@ -322,10 +336,11 @@ export function register(on) {
     ]
     const body = cats.filter((c) => c.kind !== 'free' && c.kind !== 'buffer')
     const messages = body.find((c) => c.name.toLowerCase() === 'messages')
-    const baseRows = fold(
-      body.filter((c) => c !== messages).map((c) => ({ name: LABELS[c.name.toLowerCase()] ?? c.name.toLowerCase(), tokens: c.tokens, color: COLORS[c.name.toLowerCase()] ?? FALLBACK })),
-      max,
-    ).map((r) => ({ ...r, color: r.color ?? MSG_COLORS.other, ch: '█' }))
+    // Biggest first; how many show is decided below, once the legend's width is known
+    const sorted = body
+      .filter((c) => c !== messages)
+      .map((c) => ({ name: LABELS[c.name.toLowerCase()] ?? c.name.toLowerCase(), tokens: c.tokens, color: COLORS[c.name.toLowerCase()] ?? FALLBACK }))
+      .sort((a, b) => b.tokens - a.tokens)
 
     // The estimates are scaled so the parts add up to the real Messages total.
     // A split of one part says nothing Messages does not, so Messages then shows as a plain row.
@@ -340,14 +355,30 @@ export function register(on) {
       }
     }
     const lumped = messages && parts.length === 0 ? [{ name: 'messages', tokens: messages.tokens, color: COLORS.messages, ch: '█' }] : []
+    const pct = (tokens) => Math.round((tokens / max) * 100) + '%'
 
     // Biggest group first, "other" after them, then the compact buffer and free space.
     // Messages sorts as one group by its total, with its parts kept together.
-    const rowsOf = baseRows.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
-    if (messages) rowsOf.push({ tokens: messages.tokens, rows: parts.length ? parts : lumped, isMessages: parts.length > 0 })
-    rowsOf.sort((x, y) => y.tokens - x.tokens)
-    const other = baseRows.find((r) => r.name === 'other')
-    if (other) rowsOf.push({ tokens: other.tokens, rows: [other] })
+    const groupsFor = (keep) => {
+      const baseRows = foldTo(sorted, keep).map((r) => ({ ...r, color: r.color ?? MSG_COLORS.other, ch: '█' }))
+      const groups = baseRows.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
+      if (messages) groups.push({ tokens: messages.tokens, rows: parts.length ? parts : lumped, isMessages: parts.length > 0 })
+      groups.sort((x, y) => y.tokens - x.tokens)
+      const other = baseRows.find((r) => r.name === 'other')
+      if (other) groups.push({ tokens: other.tokens, rows: [other] })
+      return groups
+    }
+    // Widths as the legend draws them: "■ name 12k 3%", Messages' head "■ messages 141k 14% ▸", no share for compact and free
+    const itemWidth = (r) => 3 + r.name.length + fmt(r.tokens).length + (r.free || r.name === 'compact' ? 0 : 1 + pct(r.tokens).length)
+    const headWidth = () => 14 + fmt(messages.tokens).length + pct(messages.tokens).length
+    const widthsOf = (groups) => [
+      ...groups.flatMap((g) => (g.isMessages ? [headWidth(), ...g.rows.map(itemWidth)] : g.rows.map(itemWidth))),
+      ...tail.map(itemWidth),
+    ]
+    // Show every category if the legend fits; otherwise fold the smallest, one at a time, until it does
+    let keep = sorted.length
+    let rowsOf = groupsFor(keep)
+    while (keep > 0 && linesFor(widthsOf(rowsOf), width) > LEGEND_LINES) rowsOf = groupsFor(--keep)
 
     // One bar segment per row; free space takes up the rounding drift so the bar is exactly `width`
     const barRows = [...rowsOf.flatMap((g) => g.rows), ...tail]
@@ -369,10 +400,10 @@ export function register(on) {
           Text({ color: r.color, children: ['■'] }),
           Text({ dimColor: true, children: [r.name] }),
           Text({ bold: true, children: [fmt(r.tokens)] }),
-          ...(r.free || r.name === 'compact' ? [] : [Text({ dimColor: true, children: [Math.round((r.tokens / max) * 100) + '%'] })]),
+          ...(r.free || r.name === 'compact' ? [] : [Text({ dimColor: true, children: [pct(r.tokens)] })]),
         ],
       })
-    const line = (key, children) => Box({ key, flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children })
+    const line = (key, children) => Box({ key, flexDirection: 'row', flexWrap: 'wrap', columnGap: GAP, children })
     const messagesHead = Box({
       key: 'leg-msg-head',
       flexDirection: 'row',
@@ -381,10 +412,10 @@ export function register(on) {
         Text({ color: COLORS.messages, children: ['■'] }),
         Text({ bold: true, color: COLORS.messages, children: ['messages'] }),
         Text({ bold: true, children: [fmt(messages?.tokens ?? 0)] }),
-        Text({ dimColor: true, children: [Math.round(((messages?.tokens ?? 0) / max) * 100) + '% ▸'] }),
+        Text({ dimColor: true, children: [pct(messages?.tokens ?? 0) + ' ▸'] }),
       ],
     })
-    // One legend line that wraps only when the terminal is too narrow. Messages' parts follow its head, kept together.
+    // One legend line that wraps when the terminal is too narrow, up to LEGEND_LINES. Messages' parts follow its head, kept together.
     const entries = []
     for (const g of rowsOf) {
       if (g.isMessages) entries.push(messagesHead, ...g.rows.map((r, i) => item(r, 'msg' + i)))

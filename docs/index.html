@@ -74,7 +74,7 @@
   .stack { display: flex; height: 12px; margin: 4px 0 5px; border-radius: 2px; overflow: hidden; }
   .stack span { display: block; height: 100%; transition: flex-grow .4s; }
   .stack span.buf { background-image: repeating-linear-gradient(135deg, #e6e9ef 0 3px, #cfd4dd 3px 6px) !important; }
-  .legend { display: flex; flex-wrap: wrap; gap: 0 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0 2ch; }
   .legend + .legend { margin-top: 1px; }
   .legend span b { font-weight: 400; }
   .prompt { border-top: 1px solid var(--term-edge); border-bottom: 1px solid var(--term-edge); padding: 3px 2px; color: var(--dim); }
@@ -104,7 +104,7 @@
   <div class="grid">
     <section class="panel">
       <h2><span class="tag">context-bar</span> · context, plan limits and model at a glance</h2>
-      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k. Messages is opened up by source (an estimate), small categories elsewhere fold into <b>other</b>, and <b>/compact</b> starts the split over.</p>
+      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k. Messages is opened up by source (an estimate), every other category keeps its own color, folding into <b>other</b> only when the legend would need more than two lines, and <b>/compact</b> starts the split over.</p>
       <div class="controls">
         <div class="group" id="models">model:</div>
         <div class="group">run a turn:
@@ -150,7 +150,7 @@ function fmt(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M'
   if (n >= 1e4) return Math.round(n / 1e3) + 'k'
   if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
-  return String(n)
+  return String(Math.round(n))
 }
 const signed = (n) => (n >= 0 ? '▲ +' : '▼ -') + fmt(Math.abs(n))
 const deltaColor = (n) => (n >= 20000 ? RED : n >= 5000 ? AMBER : BLUE)
@@ -179,7 +179,7 @@ const COLORS = {
   'system prompt': '#7b9fd8', 'system tools': '#6bbfc6', 'mcp tools': '#8b7cf6', 'mcp server instructions': '#b4a9fa',
   'custom agents': '#9bc57a', 'memory files': '#e3c26b', skills: '#e8a0bf', messages: '#d97757',
 }
-const LABELS = { 'system tools': 'tools', 'custom agents': 'agents', 'mcp server instructions': 'mcp instructions' }
+const LABELS = { 'system prompt': 'sys prompt', 'system tools': 'tools', 'mcp tools': 'mcp', 'mcp server instructions': 'mcp info', 'custom agents': 'agents', 'memory files': 'memory' }
 const FAMILIES = [
   { name: 'Opus', model: 'claude-opus-5-5', color: '#a78bfa' },
   { name: 'Sonnet', model: 'claude-sonnet-5-5', color: '#4ade80' },
@@ -207,7 +207,8 @@ const cb = {
   turns: [],
 }
 const MSG_COLORS = { explore: '#d97757', replies: '#e59a7d', actions: '#c9694a', prompts: '#f1bba6', earlier: '#9c6a58', summary: '#9c6a58', other: '#8a8f9c' }
-const FOLD = 0.01
+// Lines the legend may take before the smallest categories fold into "other"
+const LEGEND_LINES = 2
 const used = () => cb.cats.reduce((s, [, t]) => s + t, 0)
 
 function meter(p) {
@@ -215,14 +216,33 @@ function meter(p) {
   return c(limitColor(p), '█'.repeat(on), 'meter') + c('#e2e5eb', '█'.repeat(6 - on), 'meter')
 }
 
-// Rows under 1% of the window fold into one "other", biggest first and "other" last
-function fold(rows, window) {
-  const keep = []
-  let other = 0
-  rows.forEach((r) => (r.tokens / window < FOLD ? (other += r.tokens) : keep.push(r)))
-  keep.sort((x, y) => y.tokens - x.tokens)
-  if (other) keep.push({ name: 'other', tokens: other, color: MSG_COLORS.other })
-  return keep
+// Show the biggest `keep` rows and fold the rest into one "other", which goes last
+function foldTo(sorted, keep) {
+  const rest = sorted.slice(keep).reduce((n, r) => n + r.tokens, 0)
+  return rest > 0 ? [...sorted.slice(0, keep), { name: 'other', tokens: rest, color: MSG_COLORS.other }] : sorted.slice(0, keep)
+}
+
+// Lines a wrapping row of entries this many characters wide takes in `cols` columns, two spaces apart
+function linesFor(widths, cols) {
+  let lines = 1, x = -1
+  for (const w of widths) {
+    if (x < 0) x = w
+    else if (x + 2 + w <= cols) x += 2 + w
+    else { lines++; x = w }
+  }
+  return lines
+}
+
+// Columns of monospace text the band holds, like the terminal's width
+function bandColumns(band) {
+  const probe = document.createElement('span')
+  probe.textContent = '0'.repeat(10)
+  band.appendChild(probe)
+  const ch = probe.getBoundingClientRect().width / 10
+  probe.remove()
+  const style = getComputedStyle(band)
+  const inner = band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+  return ch > 0 ? Math.floor(inner / ch) : 120
 }
 
 function renderBand() {
@@ -238,19 +258,32 @@ function renderBand() {
 
   // Other categories, then Messages opened up by source (scaled to the real Messages total), then compact and free
   const messages = cb.cats.find(([n]) => n === 'messages')[1]
-  const base = fold(cb.cats.filter(([n]) => n !== 'messages').map(([n, t]) => ({ name: LABELS[n] ?? n, tokens: t, color: COLORS[n] })), MAX)
+  const sorted = cb.cats.filter(([n]) => n !== 'messages').map(([n, t]) => ({ name: LABELS[n] ?? n, tokens: t, color: COLORS[n] })).sort((x, y) => y.tokens - x.tokens)
   const guess = Object.entries(cb.split).filter(([, t]) => t > 0)
   const sum = guess.reduce((n, [, t]) => n + t, 0) || 1
   // A split of one part (right after /compact) says nothing Messages does not, so Messages shows as a plain row
   const parts = guess.length < 2 ? [] : guess.map(([n, t]) => ({ name: n, tokens: (t / sum) * messages, color: MSG_COLORS[n] })).sort((x, y) => y.tokens - x.tokens)
   const tail = [{ name: 'compact', tokens: cb.buffer, color: '#b6bcc8', buf: true }, { name: 'free', tokens: free, color: '#b6bcc8', free: true }]
 
+  const share = (t) => Math.round((t / MAX) * 100) + '%'
+
   // Biggest group first, "other" after them, then compact and free; Messages sorts by its total with its parts kept together
-  const groups = base.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
-  groups.push(parts.length ? { tokens: messages, rows: parts, isMessages: true } : { tokens: messages, rows: [{ name: 'messages', tokens: messages, color: COLORS.messages }] })
-  groups.sort((x, y) => y.tokens - x.tokens)
-  const otherRow = base.find((r) => r.name === 'other')
-  if (otherRow) groups.push({ tokens: otherRow.tokens, rows: [otherRow] })
+  const groupsFor = (keep) => {
+    const base = foldTo(sorted, keep)
+    const groups = base.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
+    groups.push(parts.length ? { tokens: messages, rows: parts, isMessages: true } : { tokens: messages, rows: [{ name: 'messages', tokens: messages, color: COLORS.messages }] })
+    groups.sort((x, y) => y.tokens - x.tokens)
+    const otherRow = base.find((r) => r.name === 'other')
+    if (otherRow) groups.push({ tokens: otherRow.tokens, rows: [otherRow] })
+    return groups
+  }
+  // Every category shows when the legend fits in two lines; otherwise the smallest fold, one at a time, until it does
+  const itemWidth = (r) => 3 + r.name.length + fmt(Math.round(r.tokens)).length + (r.free || r.buf ? 0 : 1 + share(r.tokens).length)
+  const widthsOf = (groups) => [...groups.flatMap((g) => (g.isMessages ? [14 + fmt(messages).length + share(messages).length, ...g.rows.map(itemWidth)] : g.rows.map(itemWidth))), ...tail.map(itemWidth)]
+  const cols = bandColumns(band)
+  let keep = sorted.length
+  let groups = groupsFor(keep)
+  while (keep > 0 && linesFor(widthsOf(groups), cols) > LEGEND_LINES) groups = groupsFor(--keep)
 
   const seg = (r) =>
     `<span class="${r.buf ? 'buf' : ''}" style="flex-grow:${r.tokens};background:${r.buf ? '#e6e9ef' : r.free ? '#eef0f4' : r.color}" data-tip="${esc(r.name)} · ${fmt(r.tokens)} · ${Math.round((r.tokens / MAX) * 100)}%"></span>`
@@ -313,6 +346,7 @@ FAMILIES.forEach((f, i) => {
   modelsEl.appendChild(b)
 })
 document.querySelectorAll('[data-turn]').forEach((b) => (b.onclick = () => runTurn(b.dataset.turn === 'compact' ? 'compact' : +b.dataset.turn)))
+window.addEventListener('resize', () => renderBand())
 document.getElementById('toggleBar').onclick = () => { cb.shown = !cb.shown; renderBand(); renderTranscript() }
 
 cb.turns.push({ prompt: 'why does login fail after a token refresh?', answer: 'The refresh path in src/auth.py drops the session id; fix below.', word: 'Baked', secs: 42, delta: 2000, now: used(), out: 1300, session: 16000, cache: 99 })
