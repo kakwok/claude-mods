@@ -42,6 +42,77 @@ const LABELS = {
   'mcp server instructions': 'mcp instructions',
 }
 
+// Share of the context window under which a row folds into "other". Messages, free space and the compact buffer never fold.
+const FOLD = 0.03
+
+// Messages is opened up by source: four parts, so it never needs folding. The shades stay close to the Messages color.
+const MSG_COLORS = {
+  explore: '#d97757',
+  replies: '#e59a7d',
+  actions: '#c9694a',
+  prompts: '#f1bba6',
+  earlier: '#9c6a58',
+  summary: '#9c6a58',
+  other: '#8a8f9c',
+}
+
+// Reading and searching is "explore"; everything else a tool does (shell, edits, subagent calls, MCP, web) is "actions"
+function groupOf(tool) {
+  return /^(Read|Grep|Glob|LS|NotebookRead)$/.test(tool) ? 'explore' : 'actions'
+}
+
+// Estimated Messages tokens per source for the current window. The split is a guess (growth of Messages per turn,
+// shared out by what ran); render scales it so the parts add up to the real Messages total.
+let split = new Map()
+let lastMessages = null
+let baseName = 'earlier'
+// Characters of tool results seen since the last turn, per group
+let seen = new Map()
+
+function bump(map, key, n) {
+  map.set(key, (map.get(key) ?? 0) + n)
+}
+
+function messagesOf(bd) {
+  const c = bd?.categories?.find((x) => String(x.name).toLowerCase() === 'messages')
+  return c ? c.tokens : null
+}
+
+// Called after each main-thread turn with the new Messages total and the tokens the model generated
+function track(total, out) {
+  if (total === null) return
+  if (lastMessages === null || total < lastMessages * 0.6) {
+    // First reading, or the window was compacted or cleared: what is there now is one lump
+    split = new Map([[baseName, total]])
+    baseName = 'earlier'
+  } else {
+    const delta = total - lastMessages
+    if (delta > 0) {
+      const reply = Math.min(delta, out)
+      if (reply > 0) bump(split, 'replies', reply)
+      const rest = delta - reply
+      const chars = [...seen.values()].reduce((a, b) => a + b, 0)
+      if (rest > 0 && chars > 0) for (const [g, n] of seen) bump(split, g, (rest * n) / chars)
+      else if (rest > 0) bump(split, 'prompts', rest)
+    }
+  }
+  seen = new Map()
+  lastMessages = total
+}
+
+// Fold rows under the cutoff into one "other", biggest first with "other" last
+function fold(rows, window) {
+  const keep = []
+  let other = 0
+  for (const r of rows) {
+    if (r.tokens / window < FOLD) other += r.tokens
+    else keep.push(r)
+  }
+  keep.sort((a, b) => b.tokens - a.tokens)
+  if (other > 0) keep.push({ name: 'other', tokens: other })
+  return keep
+}
+
 // Latest readings, and whether the band is shown
 let breakdown = null
 let rateLimits = []
@@ -120,6 +191,30 @@ export function register(on) {
     return next(e)
   })
 
+  // What each main-thread tool returned, for sharing out the growth of Messages. An observer: it never gets in the way of the call.
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    if (!e.agentId) {
+      try {
+        const body = typeof result?.text === 'string' ? result.text : JSON.stringify(result?.result ?? '')
+        bump(seen, groupOf(e.tool), Math.min(body.length, 400_000))
+      } catch {}
+    }
+    return result
+  })
+
+  // A compacted or cleared window starts the split over
+  for (const command of ['compact', 'clear']) {
+    on('command.run', { command }, async ($, e, next) => {
+      const result = await next(e)
+      lastMessages = null
+      baseName = command === 'compact' ? 'summary' : 'earlier'
+      seen = new Map()
+      if (visible) await refresh($)
+      return result
+    })
+  }
+
   on('turn.complete', async ($, e, next) => {
     // Subagent turns and turns with no response have nothing to report
     if (e.agentId || !e.usage) return next(e)
@@ -129,8 +224,12 @@ export function register(on) {
     const delta = now !== undefined && lastContext !== null ? now - lastContext : null
     if (now !== undefined) lastContext = now
 
-    if (!visible) return next(e)
+    if (!visible) {
+      lastMessages = null
+      return next(e)
+    }
     await refresh($)
+    track(messagesOf(breakdown), e.usage.output_tokens)
 
     // A plugin's turn.complete text is a plain notice, so the summary is drawn under the turn's duration line instead
     const input = e.usage.input_tokens + e.usage.cache_read_input_tokens + e.usage.cache_creation_input_tokens
@@ -202,53 +301,89 @@ export function register(on) {
     const width = Math.max(10, e.props.bodyColumns - 4)
     const max = breakdown.rawMaxTokens
 
-    // Biggest first; the compaction buffer, then free space, close the bar
-    const rank = (c) => (c.kind === 'free' ? 2 : c.kind === 'buffer' ? 1 : 0)
-    const rows = [...breakdown.categories].sort((a, b) => rank(a) - rank(b) || b.tokens - a.tokens)
+    // Rows by group: the other categories, Messages opened up by source, then the compact buffer and free space
+    const cats = breakdown.categories.filter((c) => c.kind !== 'deferred' && c.tokens > 0)
+    const tail = [
+      ...cats.filter((c) => c.kind === 'buffer').map((c) => ({ name: 'compact', tokens: c.tokens, color: FREE, ch: '▒' })),
+      ...cats.filter((c) => c.kind === 'free').map((c) => ({ name: 'free', tokens: c.tokens, color: FREE, ch: '█', free: true })),
+    ]
+    const body = cats.filter((c) => c.kind !== 'free' && c.kind !== 'buffer')
+    const messages = body.find((c) => c.name.toLowerCase() === 'messages')
+    const baseRows = fold(
+      body.filter((c) => c !== messages).map((c) => ({ name: LABELS[c.name.toLowerCase()] ?? c.name.toLowerCase(), tokens: c.tokens, color: COLORS[c.name.toLowerCase()] ?? FALLBACK })),
+      max,
+    ).map((r) => ({ ...r, color: r.color ?? MSG_COLORS.other, ch: '█' }))
 
-    // One bar segment per row, at least one cell for any row that holds tokens
-    const segments = []
-    let used = 0
-    for (const c of rows) {
-      if (c.kind === 'deferred' || c.tokens <= 0) continue
-      const key = c.name.toLowerCase()
-      const color = c.kind === 'free' || c.kind === 'buffer' ? FREE : (COLORS[key] ?? FALLBACK)
-      const ch = c.kind === 'buffer' ? '▒' : '█'
-      const cells = Math.max(1, Math.round((c.tokens / max) * width))
-      segments.push({ c, color, ch, cells })
-      used += cells
+    // The estimates are scaled so the parts add up to the real Messages total
+    let parts = []
+    if (messages) {
+      const guess = [...split].filter(([, n]) => n > 0)
+      const sum = guess.reduce((n, [, v]) => n + v, 0)
+      if (sum > 0) {
+        parts = guess
+          .map(([name, n]) => ({ name, tokens: (n / sum) * messages.tokens, color: MSG_COLORS[name] ?? MSG_COLORS.other, ch: '█' }))
+          .sort((a, b) => b.tokens - a.tokens)
+      }
     }
-    // Absorb rounding drift in the free-space segment so the bar is exactly `width`
-    const free = segments.find((s) => s.c.kind === 'free')
-    if (free) free.cells = Math.max(0, free.cells + (width - used))
+    const lumped = messages && parts.length === 0 ? [{ name: 'messages', tokens: messages.tokens, color: COLORS.messages, ch: '█' }] : []
 
+    // Biggest group first, "other" after them, then the compact buffer and free space.
+    // Messages sorts as one group by its total, with its parts kept together.
+    const rowsOf = baseRows.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
+    if (messages) rowsOf.push({ tokens: messages.tokens, rows: parts.length ? parts : lumped, isMessages: parts.length > 0 })
+    rowsOf.sort((x, y) => y.tokens - x.tokens)
+    const other = baseRows.find((r) => r.name === 'other')
+    if (other) rowsOf.push({ tokens: other.tokens, rows: [other] })
+
+    // One bar segment per row; free space takes up the rounding drift so the bar is exactly `width`
+    const barRows = [...rowsOf.flatMap((g) => g.rows), ...tail]
+    const segments = barRows.map((r) => ({ r, cells: Math.round((r.tokens / max) * width) }))
+    const free = segments.find((s) => s.r.free)
+    if (free) free.cells = Math.max(0, free.cells + (width - segments.reduce((n, s) => n + s.cells, 0)))
     const bar = Box({
       flexDirection: 'row',
-      children: segments.map((s, i) =>
-        Text({ key: 'seg-' + i, color: s.color, children: [s.ch.repeat(s.cells)] }),
-      ),
+      children: segments.filter((s) => s.cells > 0).map((s, i) => Text({ key: 'seg-' + i, color: s.r.color, children: [s.r.ch.repeat(s.cells)] })),
     })
 
     // Legend: a swatch, the label, tokens, and the share of the window
-    const legend = rows
-      .filter((c) => c.kind !== 'deferred')
-      .map((c, i) => {
-        const key = c.name.toLowerCase()
-        const color = c.kind === 'free' || c.kind === 'buffer' ? FREE : (COLORS[key] ?? FALLBACK)
-        const label = c.kind === 'free' ? 'free' : (LABELS[key] ?? key)
-        const pct = c.kind === 'free' ? '' : Math.round((c.tokens / max) * 100) + '%'
-        return Box({
-          key: 'leg-' + i,
-          flexDirection: 'row',
-          columnGap: 1,
-          children: [
-            Text({ color: c.kind === 'free' ? '#6b7280' : color, children: ['■'] }),
-            Text({ dimColor: true, children: [label] }),
-            Text({ bold: true, children: [fmt(c.tokens)] }),
-            ...(pct ? [Text({ dimColor: true, children: [pct] })] : []),
-          ],
-        })
+    const item = (r, i) =>
+      Box({
+        key: 'leg-' + r.name + i,
+        flexDirection: 'row',
+        columnGap: 1,
+        children: [
+          Text({ color: r.color, children: ['■'] }),
+          Text({ dimColor: true, children: [r.name] }),
+          Text({ bold: true, children: [fmt(r.tokens)] }),
+          ...(r.free || r.name === 'compact' ? [] : [Text({ dimColor: true, children: [Math.round((r.tokens / max) * 100) + '%'] })]),
+        ],
       })
+    const line = (key, children) => Box({ key, flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children })
+    const messagesHead = Box({
+      flexDirection: 'row',
+      columnGap: 1,
+      children: [
+        Text({ color: COLORS.messages, children: ['■'] }),
+        Text({ bold: true, color: COLORS.messages, children: ['messages'] }),
+        Text({ bold: true, children: [fmt(messages?.tokens ?? 0)] }),
+        Text({ dimColor: true, children: [Math.round(((messages?.tokens ?? 0) / max) * 100) + '% ▸'] }),
+      ],
+    })
+    // Plain rows share a line; Messages and its parts get a line of their own
+    const legend = []
+    let run = []
+    const flush = () => {
+      if (run.length) legend.push(line('leg-' + legend.length, run.map(item)))
+      run = []
+    }
+    for (const g of rowsOf) {
+      if (g.isMessages) {
+        flush()
+        legend.push(line('leg-msg', [messagesHead, ...g.rows.map(item)]))
+      } else run.push(...g.rows)
+    }
+    flush()
+    legend.push(line('leg-tail', tail.map(item)))
 
     // Plan limits, like the usage page: current session (5h) and this week.
     // Wide terminals get a bar and the reset countdown; narrower ones just the percent.
@@ -320,7 +455,7 @@ export function register(on) {
       borderStyle: 'round',
       ...(modelColor && { borderColor: modelColor }),
       paddingX: 1,
-      children: [header, bar, Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: legend })],
+      children: [header, bar, ...legend],
     })
     return rest.length ? Box({ flexDirection: 'column', children: [box, ...rest] }) : box
   })
