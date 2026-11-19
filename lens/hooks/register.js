@@ -94,6 +94,10 @@ let agents = []
 let bandState = ''
 // Per agent id: first seen, stopped, tool calls, latest call, tokens, and the call log
 const seen = new Map()
+// Tokens the main thread spent this session (same measure as an agent's), for comparison, and cache reads of all turns
+let mainSpent = 0
+let cacheReads = 0
+
 
 function entry(id, now) {
   let s = seen.get(id)
@@ -548,6 +552,7 @@ async function spend($, e) {
     const u = e.usage
     const s = entry(e.agentId, await $.clock.now())
     s.tokens += u.input_tokens + u.cache_creation_input_tokens + u.output_tokens
+    cacheReads += u.cache_read_input_tokens ?? 0
     if (isOpen) $.ui.invalidate('ui.render')
   } catch {}
 }
@@ -619,6 +624,10 @@ export function register(on, options) {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId && e.usage) await spend($, e)
+    else if (e.usage) {
+      mainSpent += e.usage.input_tokens + e.usage.cache_creation_input_tokens + e.usage.output_tokens
+      cacheReads += e.usage.cache_read_input_tokens ?? 0
+    }
     if (!e.agentId && isOpen && view === 'context') {
       await loadItems($)
       $.ui.invalidate('ui.render')
@@ -703,6 +712,8 @@ export function register(on, options) {
     planIsDemo = false
     known.clear()
     seen.clear()
+    mainSpent = 0
+    cacheReads = 0
     hadLive = false
     finishedAt = undefined
     pinned = false
@@ -968,12 +979,93 @@ export function register(on, options) {
       ]
     }
 
+    // Spent outside your context: what the subagents used, by type, with the biggest agents named
+    const TYPE_COLORS = ['#4f8bf0', '#6bbfc6', '#9bc57a', '#e3c26b', '#e8a0bf', '#8b7cf6']
+    const byType = new Map()
+    for (const a of agents) {
+      const t = seen.get(a.id)?.tokens ?? 0
+      const g = byType.get(a.type) ?? { type: a.type, n: 0, tokens: 0 }
+      g.n += 1
+      g.tokens += t
+      byType.set(a.type, g)
+    }
+    const groups = [...byType.values()].sort((a, b) => b.tokens - a.tokens)
+    const outside = groups.reduce((n, g) => n + g.tokens, 0)
+    let summaryBlock = []
+    if (outside > 0) {
+      const barWidth = Math.max(10, e.props.bodyColumns - 2)
+      const cells = groups.map((g) => Math.max(g.tokens > 0 ? 1 : 0, Math.round((g.tokens / outside) * barWidth)))
+      const top = ordered(agents)
+        .map(({ a }) => ({ a, tokens: seen.get(a.id)?.tokens ?? 0 }))
+        .filter((x) => x.tokens > 0)
+        .sort((x, y) => y.tokens - x.tokens)
+        .slice(0, 3)
+      summaryBlock = [
+        Box({
+          flexDirection: 'column',
+          children: [
+            Box({
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              children: [
+                Text({ bold: true, color: ACCENT, children: ['◆ spent outside your context'] }),
+                Text({ dimColor: true, children: [fmt(outside) + ' · ' + agents.length + (agents.length === 1 ? ' agent' : ' agents')] }),
+              ],
+            }),
+            Box({
+              flexDirection: 'row',
+              children: groups.map((g, i) => Text({ key: 'sb-' + i, color: TYPE_COLORS[i % TYPE_COLORS.length], children: ['█'.repeat(cells[i])] })),
+            }),
+            ...groups.map((g, i) =>
+              Box({
+                key: 'sg-' + g.type,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                children: [
+                  Box({
+                    flexDirection: 'row',
+                    columnGap: 1,
+                    children: [
+                      Text({ color: TYPE_COLORS[i % TYPE_COLORS.length], children: ['■'] }),
+                      Text({ children: [g.type] }),
+                      Text({ dimColor: true, children: ['×' + g.n] }),
+                    ],
+                  }),
+                  Box({
+                    flexDirection: 'row',
+                    columnGap: 1,
+                    children: [Text({ bold: true, children: [fmt(g.tokens)] }), Text({ dimColor: true, children: [Math.round((g.tokens / outside) * 100) + '%'] })],
+                  }),
+                ],
+              }),
+            ),
+            ...top.map((x) =>
+              Box({
+                key: 'st-' + x.a.id,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                children: [
+                  Text({ dimColor: true, wrap: 'truncate-end', children: ['  ' + x.a.description + ' · ' + (seen.get(x.a.id)?.tools ?? 0) + ' calls'] }),
+                  Text({ dimColor: true, children: [fmt(x.tokens)] }),
+                ],
+              }),
+            ),
+            Text({
+              dimColor: true,
+              wrap: 'truncate-end',
+              children: ['main thread ' + fmt(mainSpent) + (cacheReads ? ' · cache reads not counted: ' + fmt(cacheReads) : '')],
+            }),
+          ],
+        }),
+      ]
+    }
+
     // The roster, then the same agents on a shared clock
     const timeline = Box({
       flexDirection: 'column',
       children: [Text({ bold: true, color: ACCENT, children: ['◆ timeline'] }), ...lanes, axis],
     })
-    const body = agents.length === 0 ? (plan.length ? [] : [empty]) : [...roster, timeline, legend]
+    const body = agents.length === 0 ? (plan.length ? [] : [empty]) : [...summaryBlock, ...roster, timeline, legend]
 
     // The ledger tabs
     if (view === 'activity' || view === 'context') {

@@ -157,6 +157,8 @@ test('simulate a multi-agent session', async ($, on) => {
   await at(47)
   await ui.press({ key: 'tab-roster' })
   await show('47s in: agents')
+  if (!(await ui.find({ type: 'Text', text: /spent outside your context/ }))) throw new Error('the Agents tab is missing the spend summary')
+  if (!(await ui.find({ type: 'Text', text: 'Explore' }))) throw new Error('the spend summary does not group by agent type')
 
   // 50s onward: tests pass, a reviewer starts
   await at(52)
