@@ -1,4 +1,4 @@
-// Lens: one pane for the session: a plan checklist, subagents (roster with their timeline under it), and a ledger of
+// Lens: one pane for the session: a plan checklist, subagents (what they spent, a roster, and their timeline), and a ledger of
 // what Claude did (Activity) and what Claude Code added to the prompt (Context).
 // Digits 1-3 switch tabs while the pane has the keyboard. /lens opens it; /lens <view> picks a tab.
 // The pane opens by itself when agents are deployed, and a few seconds after the last

@@ -1,4 +1,4 @@
-// Context bar above the prompt: one stacked segment per /context category,
+// Context bar above the prompt: one stacked segment per /context category (Messages split by source, small ones folded),
 // plan-limit usage in the header, and a summary under each turn's duration line.
 // Shown by default; /context-bar toggles it.
 

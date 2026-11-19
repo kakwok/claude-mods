@@ -1,7 +1,7 @@
 {
   "name": "context-bar",
   "version": "0.2.0",
-  "description": "Context-window bar above the prompt, broken down by category like /context, with plan usage, the model colored by family, and a per-turn context summary",
+  "description": "Context-window bar above the prompt, broken down by category like /context with Messages split by source, plus plan usage, the model colored by family, and a per-turn context summary",
   "author": {
     "name": "Martin Kwok"
   }

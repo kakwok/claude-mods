@@ -1,7 +1,7 @@
 {
   "name": "lens",
   "version": "0.2.0",
-  "description": "One pane for the session: plan, subagents and timeline, files and commands Claude touched, and what Claude Code added to the prompt",
+  "description": "One pane for the session: plan, subagents with the tokens they spent and a timeline, files and commands Claude touched, and what Claude Code added to the prompt",
   "author": {
     "name": "Martin Kwok"
   },
