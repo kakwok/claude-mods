@@ -65,7 +65,12 @@ function groupOf(tool) {
 // shared out by what ran); render scales it so the parts add up to the real Messages total.
 let split = new Map()
 let lastMessages = null
-let baseName = 'earlier'
+// Where the first reading's lump goes. In a new session or after /clear it is the first message (the prompt and what
+// rides with it: skill and tool listings, memory, git status), so "prompts". "earlier" only for turns the mod never
+// saw (a resumed session, or the mod loaded late); "summary" after /compact. Null until decided.
+let baseName = null
+// A session that began this recently is new, not resumed or one the mod was reloaded into
+const NEW_MS = 60_000
 // Characters of tool results seen since the last turn, per group
 let seen = new Map()
 
@@ -83,8 +88,8 @@ function track(total, out) {
   if (total === null) return
   if (lastMessages === null || total < lastMessages * 0.6) {
     // First reading, or the window was compacted or cleared: what is there now is one lump
-    split = new Map([[baseName, total]])
-    baseName = 'earlier'
+    split = new Map([[baseName ?? 'earlier', total]])
+    baseName = null
   } else {
     const delta = total - lastMessages
     if (delta > 0) {
@@ -163,7 +168,10 @@ async function refresh($) {
     breakdown = usage.context.breakdown ?? null
     rateLimits = usage.rateLimits ?? []
     // Nothing tracked yet (the mod just loaded, or the window was compacted): start the split from what is there now
-    if (lastMessages === null) track(messagesOf(breakdown), 0)
+    if (lastMessages === null) {
+      if (baseName === null && Number.isFinite(usage.startedAt) && (await $.clock.now()) - usage.startedAt < NEW_MS) baseName = 'prompts'
+      track(messagesOf(breakdown), 0)
+    }
   } catch {
     breakdown = null
     rateLimits = []
@@ -210,7 +218,7 @@ export function register(on) {
     on('command.run', { command }, async ($, e, next) => {
       const result = await next(e)
       lastMessages = null
-      baseName = command === 'compact' ? 'summary' : 'earlier'
+      baseName = command === 'compact' ? 'summary' : 'prompts'
       seen = new Map()
       if (visible) await refresh($)
       return result
@@ -316,12 +324,13 @@ export function register(on) {
       max,
     ).map((r) => ({ ...r, color: r.color ?? MSG_COLORS.other, ch: '█' }))
 
-    // The estimates are scaled so the parts add up to the real Messages total
+    // The estimates are scaled so the parts add up to the real Messages total.
+    // A split of one part says nothing Messages does not, so Messages then shows as a plain row.
     let parts = []
     if (messages) {
       const guess = [...split].filter(([, n]) => n > 0)
       const sum = guess.reduce((n, [, v]) => n + v, 0)
-      if (sum > 0) {
+      if (sum > 0 && guess.length > 1) {
         parts = guess
           .map(([name, n]) => ({ name, tokens: (n / sum) * messages.tokens, color: MSG_COLORS[name] ?? MSG_COLORS.other, ch: '█' }))
           .sort((a, b) => b.tokens - a.tokens)
@@ -362,6 +371,7 @@ export function register(on) {
       })
     const line = (key, children) => Box({ key, flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children })
     const messagesHead = Box({
+      key: 'leg-msg-head',
       flexDirection: 'row',
       columnGap: 1,
       children: [
@@ -371,27 +381,14 @@ export function register(on) {
         Text({ dimColor: true, children: [Math.round(((messages?.tokens ?? 0) / max) * 100) + '% ▸'] }),
       ],
     })
-    // Plain rows share a line; Messages and its parts get a line of their own
-    const legend = []
-    let run = []
-    const flush = () => {
-      if (run.length) legend.push(line('leg-' + legend.length, run.map(item)))
-      run = []
-    }
+    // One legend line that wraps only when the terminal is too narrow. Messages' parts follow its head, kept together.
+    const entries = []
     for (const g of rowsOf) {
-      if (g.isMessages) {
-        flush()
-        legend.push(line('leg-msg', [messagesHead, ...g.rows.map(item)]))
-      } else run.push(...g.rows)
+      if (g.isMessages) entries.push(messagesHead, ...g.rows.map((r, i) => item(r, 'msg' + i)))
+      else entries.push(...g.rows.map(item))
     }
-    // Compact and free space join the last line when it is a plain one, instead of taking a line of their own
-    if (run.length) {
-      run.push(...tail)
-      flush()
-    } else {
-      flush()
-      legend.push(line('leg-tail', tail.map(item)))
-    }
+    entries.push(...tail.map((r, i) => item(r, 'tail' + i)))
+    const legend = [line('leg-0', entries)]
 
     // Plan limits, like the usage page: current session (5h) and this week.
     // Wide terminals get a bar and the reset countdown; narrower ones just the percent.

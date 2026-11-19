@@ -4,8 +4,11 @@ import { mock, test } from 'claude-code/testing'
 
 let MESSAGES = 10000
 let MCP = 1700
+// When the session began; undefined leaves it unknown, which reads as "earlier"
+let STARTED: number | undefined
 const usage = () => ({
   value: {
+    startedAt: STARTED,
     context: {
       tokens: 40000 + MESSAGES,
       window: 200000,
@@ -60,10 +63,11 @@ test('exploration shows as its own part of Messages, and small categories fold i
     if (!(await band.find({ type: 'Text', text: label }))) throw new Error('missing legend entry: ' + label)
   }
   if (await band.find({ type: 'Text', text: 'mcp tools' })) throw new Error('mcp tools (1.7k) should have folded into other')
+  if (await band.find({ key: 'leg-1' })) throw new Error('a split Messages should share the one legend line, not start another')
   console.log('legend ok')
 })
 
-test('a compacted window starts the split over as one summary row', async ($, on) => {
+test('a compacted window starts the split over, with Messages as one plain row', async ($, on) => {
   await setup($, on)
   MESSAGES = 60000
   await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
@@ -71,7 +75,8 @@ test('a compacted window starts the split over as one summary row', async ($, on
   await $.turn.complete({ answer: 'b', durationMs: 1000, usage: U, reason: 'answer' } as any)
   const band = await mount($)
   if (await band.find({ type: 'Text', text: 'explore' })) throw new Error('old split survived a compaction')
-  if (!(await band.find({ type: 'Text', text: 'earlier' }))) throw new Error('expected a single lump row after a compaction')
+  if (await band.find({ type: 'Text', text: 'earlier' })) throw new Error('a one-part split should show as plain messages')
+  if (!(await band.find({ type: 'Text', text: 'messages' }))) throw new Error('expected a messages row after a compaction')
 })
 
 test('a folded category comes back when it grows past 3% of the window, and folds again when it shrinks', async ($, on) => {
@@ -92,11 +97,48 @@ test('a folded category comes back when it grows past 3% of the window, and fold
   if (await has('mcp tools')) throw new Error('mcp tools should fold again after shrinking')
 })
 
-test('a window that was already full when the mod loaded still shows a Messages split, and compact and free share the last line', async ($, on) => {
+test('before any turn, Messages is a plain row on the same line as the other rows, compact and free', async ($, on) => {
   await setup($, on)
   MESSAGES = 50000
-  // No turn has run: the split comes from the first reading
+  // No turn has run: the split is one lump, which says nothing Messages does not
   const band = await mount($)
-  if (!(await band.find({ type: 'Text', text: 'earlier' }))) throw new Error('expected an "earlier" row before any turn')
+  if (await band.find({ type: 'Text', text: 'earlier' })) throw new Error('a one-part split should not show as "earlier"')
+  if (await band.find({ key: 'leg-msg' })) throw new Error('a lone Messages row should not take a line of its own')
   if (await band.find({ key: 'leg-tail' })) throw new Error('compact and free sit on a line of their own')
+  if (await band.find({ key: 'leg-1' })) throw new Error('expected one legend line, got more')
+})
+
+test('once the split has two parts, earlier shows beside them', async ($, on) => {
+  // session.start takes the first reading, which becomes "earlier"
+  MESSAGES = 10000
+  await setup($, on)
+  MESSAGES = 20000
+  await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
+  const band = await mount($)
+  for (const label of ['earlier', 'replies']) {
+    if (!(await band.find({ type: 'Text', text: label }))) throw new Error('missing legend entry: ' + label)
+  }
+})
+
+// The first reading's lump, once a turn has added a second part, for a session that began ageMs ago
+async function firstLump($: any, on: any, ageMs: number) {
+  // setup's mocked clock starts at 0
+  STARTED = -ageMs
+  MESSAGES = 10000
+  await setup($, on)
+  MESSAGES = 20000
+  await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
+  const band = await mount($)
+  STARTED = undefined
+  return (await band.find({ type: 'Text', text: 'earlier' })) ? 'earlier' : (await band.find({ type: 'Text', text: 'prompts' })) ? 'prompts' : 'none'
+}
+
+test('a new session counts its first message as prompts, with no earlier', async ($, on) => {
+  const got = await firstLump($, on, 5_000)
+  if (got !== 'prompts') throw new Error('expected prompts, got ' + got)
+})
+
+test('a resumed session, or one the mod loads into late, calls it "earlier"', async ($, on) => {
+  const got = await firstLump($, on, 3_600_000)
+  if (got !== 'earlier') throw new Error('expected earlier, got ' + got)
 })

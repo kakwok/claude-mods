@@ -10,7 +10,7 @@ Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). N
 
 A band above the prompt.
 
-- How full the context window is, by category (like `/context`). Messages is opened up by source: `explore` (Read, Grep, Glob), `actions` (shell, edits, subagent and other tool calls), `replies` and `prompts`, kept together on one row. The split is an estimate, scaled to add up to the real Messages total, and starts over after `/compact` or `/clear`. What was already in the window when the mod loaded shows as `earlier`.
+- How full the context window is, by category (like `/context`). Messages is opened up by source: `explore` (Read, Grep, Glob), `actions` (shell, edits, subagent and other tool calls), `replies` and `prompts`, kept together on one row. The split is an estimate, scaled to add up to the real Messages total, and starts over after `/compact` or `/clear`. In a new session or after `/clear`, the first message (your prompt plus the skill and tool listings, memory and git status that ride with it) counts as `prompts`. Only turns the mod never saw, in a resumed session or one it loaded into late, show as `earlier`; after `/compact` the summary shows as `summary`. Until a turn adds a second part, Messages shows as one plain row.
 - Categories under 3% of the context window fold into `other`, so the legend stays readable. Messages and its parts, `compact` (the autocompact buffer) and free space always show.
 - Your 5-hour and weekly plan usage, with reset times.
 - The model, with the band's frame in that model family's color, so a wrong model stands out.
@@ -93,6 +93,10 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 Run a mod's tests with `claude plugin test ~/mods/lens`.
 
 ## Releases
+
+**v0.2.2**:
+
+- `context-bar`: a new session or `/clear` counts what is already in Messages (the first message) as `prompts`, so the split is just the four sources; `earlier` is left for turns the mod never saw (a resumed session, or loaded late). A one-part split shows as a plain `messages` row, and the legend is one line that wraps only when the terminal is too narrow.
 
 **v0.2.1**:
 

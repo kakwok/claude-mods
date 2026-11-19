@@ -241,12 +241,13 @@ function renderBand() {
   const base = fold(cb.cats.filter(([n]) => n !== 'messages').map(([n, t]) => ({ name: LABELS[n] ?? n, tokens: t, color: COLORS[n] })), MAX)
   const guess = Object.entries(cb.split).filter(([, t]) => t > 0)
   const sum = guess.reduce((n, [, t]) => n + t, 0) || 1
-  const parts = guess.map(([n, t]) => ({ name: n, tokens: (t / sum) * messages, color: MSG_COLORS[n] })).sort((x, y) => y.tokens - x.tokens)
+  // A split of one part (right after /compact) says nothing Messages does not, so Messages shows as a plain row
+  const parts = guess.length < 2 ? [] : guess.map(([n, t]) => ({ name: n, tokens: (t / sum) * messages, color: MSG_COLORS[n] })).sort((x, y) => y.tokens - x.tokens)
   const tail = [{ name: 'compact', tokens: cb.buffer, color: '#b6bcc8', buf: true }, { name: 'free', tokens: free, color: '#b6bcc8', free: true }]
 
   // Biggest group first, "other" after them, then compact and free; Messages sorts by its total with its parts kept together
   const groups = base.filter((r) => r.name !== 'other').map((r) => ({ tokens: r.tokens, rows: [r] }))
-  groups.push({ tokens: messages, rows: parts, isMessages: true })
+  groups.push(parts.length ? { tokens: messages, rows: parts, isMessages: true } : { tokens: messages, rows: [{ name: 'messages', tokens: messages, color: COLORS.messages }] })
   groups.sort((x, y) => y.tokens - x.tokens)
   const otherRow = base.find((r) => r.name === 'other')
   if (otherRow) groups.push({ tokens: otherRow.tokens, rows: [otherRow] })
@@ -257,12 +258,9 @@ function renderBand() {
   const item = (r) =>
     `<span data-tip="${esc(r.name)}: ${Math.round(r.tokens).toLocaleString()} tokens">${c(r.color, '■')} <b>${esc(r.name)}</b> ${d(fmt(Math.round(r.tokens)) + (r.free || r.buf ? '' : ' ' + Math.round((r.tokens / MAX) * 100) + '%'))}</span>`
   const msgHead = `<span>${c(COLORS.messages, '■')} ${c(COLORS.messages, 'messages', 'bold')} <b>${fmt(messages)}</b> ${d(Math.round((messages / MAX) * 100) + '% ▸')}</span>`
-  let lines = '', run = []
-  const flush = () => { if (run.length) lines += '<div class="legend">' + run.map(item).join('') + '</div>'; run = [] }
-  groups.forEach((g) => { if (g.isMessages) { flush(); lines += '<div class="legend">' + msgHead + g.rows.map(item).join('') + '</div>' } else run.push(...g.rows) })
-  // Compact and free space join the last line when it is a plain one
-  if (run.length) { run.push(...tail); flush(); band.innerHTML = head + stack + lines }
-  else { flush(); band.innerHTML = head + stack + lines + '<div class="legend">' + tail.map(item).join('') + '</div>' }
+  // One legend line that wraps only when narrow; Messages' parts follow its head
+  const entries = groups.flatMap((g) => (g.isMessages ? [msgHead, ...g.rows.map(item)] : g.rows.map(item)))
+  band.innerHTML = head + stack + '<div class="legend">' + entries.join('') + tail.map(item).join('') + '</div>'
 }
 
 function renderTranscript() {
