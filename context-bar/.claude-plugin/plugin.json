@@ -1,8 +1,16 @@
 {
   "name": "context-bar",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Context-window bar above the prompt, broken down by category like /context with Messages split by source, plus plan usage, the model colored by family, and a per-turn context summary",
   "author": {
     "name": "Martin Kwok"
+  },
+  "userConfig": {
+    "legendLines": {
+      "type": "number",
+      "title": "Legend lines",
+      "description": "Lines the context bar's legend may take before the smallest categories fold into other. Messages and its parts, compact and free never fold.",
+      "default": 1
+    }
   }
 }

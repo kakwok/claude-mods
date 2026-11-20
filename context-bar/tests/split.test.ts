@@ -1,6 +1,6 @@
 import { mock, test } from 'claude-code/testing'
 
-// Messages is opened up by source: explore, actions, replies, prompts as one block, every category under a short name, the smallest folded only when the legend would pass two lines, never Messages/compact/free.
+// Messages is opened up by source: explore, actions, replies, prompts as one block, every category under a short name, the smallest folded only when the legend would pass its lines (legendLines, 1 by default), never Messages/compact/free.
 
 let MESSAGES = 10000
 let MCP = 1700
@@ -53,7 +53,7 @@ let mounts = 0
 const mount = ($: any, bodyColumns = 120) =>
   $.ui.mount({ plugin: 'context-bar', component: 'AbovePrompt', requestId: 'band-' + mounts++, surface: 'terminal', viewport: { columns: bodyColumns + 20, rows: 40 }, props: { bodyColumns, hasSurvey: false } } as any)
 
-test('exploration shows as its own part of Messages, and every category shows under a short name when there is room', async ($, on) => {
+test('exploration shows as its own part of Messages, and every category shows under a short name when there is room', { options: { legendLines: 2 } }, async ($, on) => {
   await setup($, on)
   MESSAGES = 10000
   await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
@@ -81,7 +81,7 @@ test('a compacted window starts the split over, with Messages as one plain row',
   if (!(await band.find({ type: 'Text', text: 'messages' }))) throw new Error('expected a messages row after a compaction')
 })
 
-test('on a narrow terminal the smallest categories fold into other, and come back when it widens', async ($, on) => {
+test('on a narrow terminal the smallest categories fold into other, and come back when it widens', { options: { legendLines: 2 } }, async ($, on) => {
   // Same Messages before and after the turn, so Messages is one plain row and the fit depends only on the categories
   MESSAGES = 10000
   await setup($, on)
@@ -161,4 +161,73 @@ test('a part under 1k shows as a whole number, not a float from scaling', async 
   if (!(await band.find({ type: 'Text', text: 'replies' }))) throw new Error('missing legend entry: replies')
   if (await band.find({ type: 'Text', text: /\d\.\d{3,}/ })) throw new Error('a token count shows as an unrounded float')
   if (!(await band.find({ type: 'Text', text: '252' }))) throw new Error('expected replies as 252')
+})
+
+// The legend's entries as drawn: label, token count, and the width of the entry ("■ name 12k 3%")
+async function legend(band: any) {
+  const boxes = (await band.findAll({ type: 'Box' })).filter((b: any) => b.key?.startsWith('leg-') && b.key !== 'leg-0')
+  return boxes.map((b: any) => {
+    const texts = b.children.map((c: any) => (typeof c === 'string' ? c : c.children.join('')))
+    return { name: texts[1], tokens: texts[2], width: texts.join(' ').length }
+  })
+}
+const fmt = (n: number) => (n >= 1e4 ? Math.round(n / 1e3) + 'k' : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k' : String(Math.round(n)))
+// The fixture's categories under their legend labels
+const CATEGORIES = () => ({ 'sys prompt': 6200, tools: 12000, skills: 8000, mcp: MCP, memory: 12100 })
+
+// For a one-line legend at `cols`: it fits, the smallest categories folded, and other holds exactly what they add up to
+async function checkOneLine($: any, cols: number) {
+  const entries = await legend(await mount($, cols))
+  const width = entries.reduce((n: number, e: any) => n + e.width, 0) + 2 * (entries.length - 1)
+  if (width > cols - 4) throw new Error(`legend is ${width} columns, more than one line of ${cols - 4}`)
+  for (const label of ['messages', 'compact', 'free']) {
+    if (!entries.some((e: any) => e.name === label)) throw new Error(label + ' should never fold')
+  }
+  const cats = Object.entries(CATEGORIES()).sort((a, b) => b[1] - a[1])
+  const shown = cats.filter(([name]) => entries.some((e: any) => e.name === name))
+  const folded = cats.filter(([name]) => !entries.some((e: any) => e.name === name))
+  // Folding takes the smallest: every shown category is bigger than every folded one
+  if (shown.length && folded.length && shown[shown.length - 1][1] < folded[0][1]) throw new Error('a bigger category folded before a smaller one')
+  for (const [name, tokens] of shown) {
+    const e = entries.find((x: any) => x.name === name)
+    if (e.tokens !== fmt(tokens)) throw new Error(`${name} shows ${e.tokens}, expected ${fmt(tokens)}`)
+  }
+  const other = entries.find((e: any) => e.name === 'other')
+  const sum = folded.reduce((n, [, t]) => n + t, 0)
+  if (folded.length === 0 ? other : other?.tokens !== fmt(sum)) throw new Error(`other shows ${other?.tokens}, expected ${folded.length ? fmt(sum) : 'none'}`)
+  return folded.map(([name]) => name)
+}
+
+test('by default the legend keeps to one line, folding the smallest into an other that adds up', async ($, on) => {
+  MESSAGES = 10000
+  MCP = 1700
+  await setup($, on)
+  await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
+  const at120 = await checkOneLine($, 120)
+  if (at120.length === 0) throw new Error('at 120 columns the fixture needs folding to fit one line')
+  const at80 = await checkOneLine($, 80)
+  if (at80.length <= at120.length) throw new Error('a narrower terminal should fold more')
+  const at300 = await checkOneLine($, 300)
+  if (at300.length !== 0) throw new Error('a wide terminal should fold nothing')
+  console.log('folded at 120:', at120.join(', '), '| at 80:', at80.join(', '))
+})
+
+test('a split Messages keeps all its parts on one line too, and other still adds up', async ($, on) => {
+  MESSAGES = 10000
+  MCP = 1700
+  await setup($, on)
+  await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
+  await $.tool.call({ tool: 'Read', tool_use_id: 't1', file_path: '/x' } as any)
+  MESSAGES = 30000
+  await $.turn.complete({ answer: 'b', durationMs: 1000, usage: U, reason: 'answer' } as any)
+  await checkOneLine($, 160)
+  const names = (await legend(await mount($, 160))).map((e: any) => e.name)
+  for (const label of ['explore', 'replies']) if (!names.includes(label)) throw new Error('Messages part should never fold: ' + label)
+})
+
+test('legendLines 0 or nonsense falls back to one line', { options: { legendLines: 0 } }, async ($, on) => {
+  MESSAGES = 10000
+  await setup($, on)
+  await $.turn.complete({ answer: 'a', durationMs: 1000, usage: U, reason: 'answer' } as any)
+  await checkOneLine($, 120)
 })

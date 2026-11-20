@@ -104,7 +104,7 @@
   <div class="grid">
     <section class="panel">
       <h2><span class="tag">context-bar</span> · context, plan limits and model at a glance</h2>
-      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k. Messages is opened up by source (an estimate), every other category keeps its own color, folding into <b>other</b> only when the legend would need more than two lines, and <b>/compact</b> starts the split over.</p>
+      <p class="lead">The frame and model name take the model family's color, so a session on the wrong model stands out. After each turn, a line under the turn's duration says what it added to the context: blue, amber from 5k, red from 20k. Messages is opened up by source (an estimate), every other category keeps its own color, folding into <b>other</b> only when the legend would need more than one line (<b>Legend lines</b> in <b>/config</b>), and <b>/compact</b> starts the split over.</p>
       <div class="controls">
         <div class="group" id="models">model:</div>
         <div class="group">run a turn:
@@ -208,7 +208,7 @@ const cb = {
 }
 const MSG_COLORS = { explore: '#d97757', replies: '#e59a7d', actions: '#c9694a', prompts: '#f1bba6', earlier: '#9c6a58', summary: '#9c6a58', other: '#8a8f9c' }
 // Lines the legend may take before the smallest categories fold into "other"
-const LEGEND_LINES = 2
+const LEGEND_LINES = 1
 const used = () => cb.cats.reduce((s, [, t]) => s + t, 0)
 
 function meter(p) {
@@ -277,7 +277,7 @@ function renderBand() {
     if (otherRow) groups.push({ tokens: otherRow.tokens, rows: [otherRow] })
     return groups
   }
-  // Every category shows when the legend fits in two lines; otherwise the smallest fold, one at a time, until it does
+  // Every category shows when the legend fits in LEGEND_LINES lines; otherwise the smallest fold, one at a time, until it does
   const itemWidth = (r) => 3 + r.name.length + fmt(Math.round(r.tokens)).length + (r.free || r.buf ? 0 : 1 + share(r.tokens).length)
   const widthsOf = (groups) => [...groups.flatMap((g) => (g.isMessages ? [14 + fmt(messages).length + share(messages).length, ...g.rows.map(itemWidth)] : g.rows.map(itemWidth))), ...tail.map(itemWidth)]
   const cols = bandColumns(band)

@@ -11,7 +11,7 @@ Two [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview). N
 A band above the prompt.
 
 - How full the context window is, by category (like `/context`), with Messages opened up by source (see below).
-- Every category shows in its own color, under a short name (`sys prompt`, `tools`, `skills`, `mcp`, `mcp info`, `memory`, `agents`). The legend takes up to two lines; only when it would need more at the terminal's width do the smallest categories fold into `other`, one at a time, until it fits. Messages and its parts, `compact` (the autocompact buffer) and free space never fold.
+- Every category shows in its own color, under a short name (`sys prompt`, `tools`, `skills`, `mcp`, `mcp info`, `memory`, `agents`). The legend keeps to one line; only when it would need more at the terminal's width do the smallest categories fold into `other` (which shows their total), one at a time, until it fits. Messages and its parts, `compact` (the autocompact buffer) and free space never fold. To give the legend more room, set **Legend lines** for context-bar in `/config`.
 - Your 5-hour and weekly plan usage, with reset times.
 - The model, with the band's frame in that model family's color, so a wrong model stands out.
 - After each turn, how much context the turn added: blue, amber from 5k, red from 20k.
@@ -112,6 +112,10 @@ claude --plugin-dir ~/mods/lens                # try it here; /reload-plugins pi
 Run a mod's tests with `claude plugin test ~/mods/lens`.
 
 ## Releases
+
+**v0.2.5**:
+
+- `context-bar`: the legend keeps to one line by default, folding the smallest categories into `other` (their total) until it fits; a new **Legend lines** option in `/config` gives it more room.
 
 **v0.2.4**:
 

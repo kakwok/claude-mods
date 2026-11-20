@@ -45,9 +45,10 @@ const LABELS = {
   'memory files': 'memory',
 }
 
-// Lines the legend may take. Every category shows; only when the legend would need more lines than this at the
-// terminal's width do the smallest fold into "other". Messages and its parts, free space and the compact buffer never fold.
-const LEGEND_LINES = 2
+// Lines the legend may take (the legendLines option, 1 by default). Every category shows; only when the legend would need
+// more lines than this at the terminal's width do the smallest fold into "other". Messages and its parts, free space and the
+// compact buffer never fold.
+let legendLines = 1
 // Spaces between legend entries
 const GAP = 2
 
@@ -196,7 +197,9 @@ async function refresh($) {
   $.ui.invalidate('ui.render')
 }
 
-export function register(on) {
+export function register(on, options) {
+  const n = Math.round(Number(options?.legendLines))
+  legendLines = Number.isFinite(n) && n >= 1 ? n : 1
   on('session.start', async ($, e, next) => {
     // The reset countdown only moves with the clock, so redraw once a minute while shown
     $.clock.every(60_000, () => {
@@ -378,7 +381,7 @@ export function register(on) {
     // Show every category if the legend fits; otherwise fold the smallest, one at a time, until it does
     let keep = sorted.length
     let rowsOf = groupsFor(keep)
-    while (keep > 0 && linesFor(widthsOf(rowsOf), width) > LEGEND_LINES) rowsOf = groupsFor(--keep)
+    while (keep > 0 && linesFor(widthsOf(rowsOf), width) > legendLines) rowsOf = groupsFor(--keep)
 
     // One bar segment per row; free space takes up the rounding drift so the bar is exactly `width`
     const barRows = [...rowsOf.flatMap((g) => g.rows), ...tail]
@@ -415,7 +418,7 @@ export function register(on) {
         Text({ dimColor: true, children: [pct(messages?.tokens ?? 0) + ' ▸'] }),
       ],
     })
-    // One legend line that wraps when the terminal is too narrow, up to LEGEND_LINES. Messages' parts follow its head, kept together.
+    // One legend line that wraps when the terminal is too narrow, up to legendLines. Messages' parts follow its head, kept together.
     const entries = []
     for (const g of rowsOf) {
       if (g.isMessages) entries.push(messagesHead, ...g.rows.map((r, i) => item(r, 'msg' + i)))
